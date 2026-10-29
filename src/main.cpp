@@ -70,28 +70,22 @@ static void test() {
 /*                              AUTON SELECTOR                                */
 /*============================================================================*/
 
-// One entry per auton. This table is the single source of truth: the screen
-// buttons and autonomous() are both built from it, so adding an auton here
-// is all you need to do.
-struct Auton {
-  const char *name;
-  void (*run)();
+// Button labels, in screen order. To add an auton: add its name here AND a
+// matching case in autonomous() below (same position = same number).
+static const char *AUTON_NAMES[] = {
+    "Match Left",  // 0
+    "Match Right", // 1
+    "Skills",      // 2
+    "Do Nothing",  // 3
+    "Test",        // 4
 };
-
-static const Auton AUTONS[] = {
-    {"Match Left", matchLeft},
-    {"Match Right", matchRight},
-    {"Skills", skills},
-    {"Do Nothing", doNothing},
-    {"Test", test},
-};
-static const int AUTON_COUNT = sizeof(AUTONS) / sizeof(AUTONS[0]);
+static const int AUTON_COUNT = sizeof(AUTON_NAMES) / sizeof(AUTON_NAMES[0]);
 
 static const int SCREEN_WIDTH = 480;  // V5 brain screen size in pixels
 static const int SCREEN_HEIGHT = 272;
 static const int ROW_HEIGHT = SCREEN_HEIGHT / AUTON_COUNT;
 
-// Index into AUTONS. Starts on "Do Nothing" so a forgotten selection is safe.
+// Index into AUTON_NAMES. Starts on "Do Nothing" so a forgotten selection is safe.
 static int selectedAuton = 3;
 
 // Draw one full-width button per auton. The selected one is green.
@@ -107,7 +101,7 @@ static void drawSelector() {
     Brain.Screen.drawRectangle(0, top, SCREEN_WIDTH, ROW_HEIGHT - 2);
     // `false` = transparent text background, so the button color shows.
     Brain.Screen.printAt(20, top + ROW_HEIGHT / 2 + 6, false, "%s",
-                         AUTONS[i].name);
+                         AUTON_NAMES[i]);
   }
 }
 
@@ -129,7 +123,10 @@ void pre_auton(void) {
   setGear(Gear::LOW);
 
   // The robot must sit still while the inertial sensor calibrates (~2 s).
+  // The short wait gives isCalibrating() time to turn true, so the loop
+  // can't exit before calibration has actually started.
   imu.calibrate();
+  wait(100, msec);
   while (imu.isCalibrating())
     wait(20, msec);
 
@@ -140,7 +137,28 @@ void pre_auton(void) {
 }
 
 // Run whichever auton is selected on the brain screen.
-void autonomous(void) { AUTONS[selectedAuton].run(); }
+// Case numbers must match the positions in AUTON_NAMES.
+void autonomous(void) {
+  switch (selectedAuton) {
+  case 0:
+    matchLeft();
+    break;
+  case 1:
+    matchRight();
+    break;
+  case 2:
+    skills();
+    break;
+  case 3:
+    doNothing();
+    break;
+  case 4:
+    test();
+    break;
+  default:
+    break; // unknown selection: do nothing (safe)
+  }
+}
 
 // Joystick percent -> volts, ignoring tiny amounts of stick drift.
 static double stickVolts(double percent) {

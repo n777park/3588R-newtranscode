@@ -293,8 +293,6 @@ void moveToPoint(double x, double y, bool reverse, int timeoutMs,
     double dx = x - pose.x;
     double dy = y - pose.y;
     double distance = std::hypot(dx, dy);
-    if (settle.update(distance < DRIVE_TOLERANCE))
-      break;
 
     // Distance to the point measured along the way the robot is facing.
     // This is negative if the point is behind us, so the robot will back
@@ -302,6 +300,14 @@ void moveToPoint(double x, double y, bool reverse, int timeoutMs,
     // also slows the robot down automatically while it is still turning.
     double theta = toRadians(pose.theta);
     double forwardError = dx * std::sin(theta) + dy * std::cos(theta);
+
+    // Once steering is locked, the robot can only fix error along the way
+    // it is facing, so judge "done" by forward error. Otherwise a small
+    // sideways miss would keep it waiting until the timeout.
+    bool close = distance < STOP_STEERING_DIST;
+    if (settle.update(close ? std::fabs(forwardError) < DRIVE_TOLERANCE
+                            : distance < DRIVE_TOLERANCE))
+      break;
 
     // Keep re-aiming at the point until we're close, then lock the heading
     // so tiny position errors don't make the robot spin in place.
