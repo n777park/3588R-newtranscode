@@ -158,9 +158,26 @@ private:
 // The single source of truth for which gear we are in.
 static Gear currentGear = Gear::LOW;
 
+// While the brain's clock (ms) is below this, arcadeVolts outputs 0. This
+// keeps the driver loop from re-powering the drive in the middle of a shift.
+static uint32_t shiftPauseUntilMs = 0;
+
+// Shift gears. If the gear actually changes, the drive is unpowered for
+// SHIFT_PAUSE_MS around the piston firing so the gears engage cleanly.
+// Blocks for SHIFT_PAUSE_MS in that case.
 void setGear(Gear gear) {
+  if (gear == currentGear) {
+    transmissionPiston.set(gear == Gear::HIGH); // make sure piston agrees
+    return;
+  }
+  shiftPauseUntilMs = timer::system() + SHIFT_PAUSE_MS;
+  leftDrive.stop(brakeType::coast);
+  rightDrive.stop(brakeType::coast);
+  this_thread::sleep_for(SHIFT_PAUSE_MS / 2);
+
   currentGear = gear;
   transmissionPiston.set(gear == Gear::HIGH);
+  this_thread::sleep_for(SHIFT_PAUSE_MS / 2);
 }
 
 Gear getGear() { return currentGear; }
@@ -182,6 +199,12 @@ double inchesPerMotorRev() {
 // Arcade drive in volts. Positive forward = drive forward, positive turn =
 // turn clockwise (right). Used by both driver control and autonomous.
 void arcadeVolts(double forward, double turn) {
+  // Mid-shift: let the drive coast (see setGear).
+  if (timer::system() < shiftPauseUntilMs) {
+    forward = 0.0;
+    turn = 0.0;
+  }
+
   double left = forward + turn;
   double right = forward - turn;
 

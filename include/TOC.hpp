@@ -24,8 +24,9 @@
 /*                              ROBOT GEOMETRY                                */
 /*============================================================================*/
 
-// Drive wheel diameter in inches. Change this if you use a different wheel.
-constexpr double WHEEL_DIAMETER = 3.25;
+// Drive wheel diameter in inches. 2.75" wheels rarely measure exactly 2.75":
+// drive a known distance, compare to what odometry says, and adjust this.
+constexpr double WHEEL_DIAMETER = 2.75;
 
 // Distance between the left and right wheel contact patches, in inches.
 // The frame is 25 holes wide (24 gaps x 0.5" = 12"). Measure the real
@@ -53,6 +54,10 @@ constexpr double HIGH_GEAR_WHEEL_RPM = 400.0;
 
 // The two gears. The integer value is used to index the per-gear PID tables.
 enum class Gear { LOW = 0, HIGH = 1 };
+
+// Drive power is cut for this long around a shift so the gears aren't
+// loaded while they engage (the piston fires halfway through).
+constexpr int SHIFT_PAUSE_MS = 80;
 
 /*============================================================================*/
 /*                               PID TUNING                                   */
