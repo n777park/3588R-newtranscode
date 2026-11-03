@@ -1,7 +1,7 @@
 /*----------------------------------------------------------------------------*/
 /*                                                                            */
 /*    Module:       main.cpp                                                  */
-/*    Author:       Nathan Park                                               */
+/*    Author:                                                      */
 /*    Created:      10/28/2026, 5:56:05 PM                                    */
 /*    Description:  Competition entry point: autons, auton selector, and      */
 /*                  driver control. Shared code lives in motions.cpp and is   */
@@ -41,15 +41,175 @@ static void matchRight() {
   moveToPoint(FIELD_SIZE - 48.0, 48.0);
 }
 
-// Skills auton. Uses a wall reset to wipe out drift partway through.
+/*----------------------------------------------------------------------------*/
+/*                              SKILLS                                        */
+/*                                                                            */
+/*  Field points from the V5 Override manual v2.1, Appendix A ("Field        */
+/*  Element Locations" / "Scoring Object Locations"), Robot Skills setup     */
+/*  (RSC4: all Goals start empty). Origin = bottom-left corner in the        */
+/*  audience view, which is the corner between the red Alliance Station and  */
+/*  the audience. Red Alliance Station is the LEFT wall (x = 0).             */
+/*----------------------------------------------------------------------------*/
+
+// Back straight up `inches` (to clear a goal/wall before turning).
+static void backUp(double inches) {
+  Pose pose = getPose();
+  double h = toRadians(pose.theta);
+  moveToPoint(pose.x - inches * std::sin(h), pose.y - inches * std::cos(h),
+              true, 1500);
+}
+
+static void openClaw() { moveMechanismTo(claw, CLAW_OPEN_DEG, CLAW_GAINS, 500); }
+static void closeClaw() {
+  moveMechanismTo(claw, CLAW_CLOSED_DEG, CLAW_GAINS, 500);
+}
+static void liftTo(double deg) {
+  moveMechanismTo(lift, deg, LIFT_GAINS, 1500);
+}
+
+// Drive the robot's center to (cx, cy), aim the claw at the Pin+Cup at
+// (ox, oy) and pick it up.
+static void grabFromFloor(double cx, double cy, double ox, double oy) {
+  liftTo(LIFT_GRAB_DEG);
+  openClaw();
+  moveToPoint(cx, cy);
+  turnToPoint(ox, oy);
+  closeClaw();
+  liftTo(LIFT_CARRY_DEG);
+}
+
+// Drive the robot's center to (cx, cy), aim the claw at the goal at
+// (gx, gy), which already has `level` Pins on it, and drop the held object.
+static void placeOnGoal(double cx, double cy, double gx, double gy,
+                        int level) {
+  liftTo(LIFT_PLACE_BASE_DEG + level * LIFT_DEG_PER_LEVEL);
+  moveToPoint(cx, cy);
+  turnToPoint(gx, gy);
+  openClaw();
+  backUp(8.0);
+  liftTo(LIFT_CARRY_DEG);
+}
+
+// Get a match load from the bottom-left red Loader (west wall, half a tile
+// up: y = tiles(0.5) = 11.34). The robot's corners are 10.96" from its
+// center (sqrt(9^2 + 6.25^2)), so it can't turn on the loader's line
+// without a corner hitting the south wall (only 0.38" spare). Instead it
+// turns west 14.5" off the wall, angles down into the loader, squares up
+// (a small turn, so the corners barely move), and backs out north-east to
+// (26, 16) where it has room to turn toward a goal.
+static void getMatchLoad() {
+  liftTo(LIFT_LOAD_DEG);
+  openClaw();
+  moveToPoint(tiles(1) + 6.89, tiles(0.5) + 3.16); // line-up (30, 14.5)
+  turnToHeading(270.0);
+  moveToPoint(3.74 + 10.5, tiles(0.5)); // loader is 3.74" off the wall
+  turnToHeading(270.0); // square up so the claw is on the loader
+  wait(LOAD_WAIT_MS, msec);
+  closeClaw();
+  moveToPoint(tiles(1) + 2.89, tiles(0.5) + 4.66, true); // back out (26, 16)
+}
+
+// Spin the active toggle to flip the Toggle in front of us to red, then
+// back off (a Toggle touching a Robot doesn't count as set - SC4).
+static void spinToggle() {
+  activeToggle.spin(directionType::fwd, TOGGLE_FLIP_VOLTS, voltageUnits::volt);
+  wait(TOGGLE_FLIP_MS, msec);
+  activeToggle.stop(brakeType::coast);
+  backUp(8.0);
+}
+
+// Skills route:
+//   1. Flip the left Toggle to red.
+//   2. Preload Pin onto red Goal 1 (level 1).
+//   3. YY Pin+Cup closest to (0, 0) onto Goal 1 (level 2).
+//   4. Second YY Pin+Cup onto Goal 1 (level 3).
+//   5. Match loads onto Goal 1 until it is 5 tall.
+//   6. Remaining match loads onto red Goal 2.
+//   7. Flip the bottom Toggle to red, then park in the Midfield.
+//
+// Match loads (RSC4): 3 red/yellow Pins, 4 blue/yellow Pins, 7 Cups.
+// Goal 1 gets 2 of them, the other 5 go on Goal 2.
+//
+// Everything is in inches. tiles(n) = inches to tile seam n (see TOC.hpp),
+// so (tiles(1), tiles(2)) is "1 tile over, 2 tiles up". Game objects sit
+// right on tile seams:
+//   red Goal 1  (tiles(1), tiles(2))     red Goal 2  (tiles(2), tiles(1))
+//   YY 1        (tiles(1), tiles(1))     YY 2        (tiles(2), tiles(2))
+//   left Toggle (wall, tiles(3))         bottom Toggle (tiles(3), wall)
+//
+// Robot is 18" long x 12.5" wide. Every moveToPoint / first pair of numbers
+// below is where the robot's CENTER goes, written as a tile seam +/- an
+// offset in inches. For grabs and places, that center is 10.5" back from
+// the object (9" half length + ~1.5" to the middle of the object in the
+// claw), on the line the robot drives in on, so the claw ends on the
+// object. Paths leave at least ~2" between the robot's sides and the goals.
 static void skills() {
-  setPose({FIELD_SIZE / 2, 9.0, 0.0});
-  setGear(Gear::HIGH);
-  moveToPoint(FIELD_SIZE / 2, 72.0);
-  setGear(Gear::LOW);
-  moveToPoint(FIELD_SIZE / 2, 20.0, true); // back up toward the start wall
-  resetHeadingOffBackWall();
-  turnToHeading(90.0);
+  // Start in the left Quadrant (RSC2) directly in front of the left Toggle
+  // (left wall, y = tiles(3)), facing it with the active toggle almost
+  // touching it, holding the red/yellow Preload Pin in the claw. Center x =
+  // ~2" Toggle depth + 9" half length.
+  setPose({11.0, tiles(3), 270.0});
+  resetHeadingOffBackWall(); // make sure the robot is facing the wall
+  closeClaw();
+
+  // 1. Left Toggle -> red, without driving. Owns the yellow halves stacked
+  //    on Goal 1. Backs up 8".
+  spinToggle();
+
+  // 2. Preload straight into empty red Goal 1, coming in from the north.
+  int goal1Level = 0;
+  placeOnGoal(tiles(1) - 1.81, tiles(2) + 10.34, tiles(1), tiles(2),
+              goal1Level++);
+
+  // 3. YY 1. Go around the WEST side of Goal 1 first (a straight line
+  //    would drive through it), then come in from the north-west.
+  moveToPoint(10.0, tiles(1.75));
+  grabFromFloor(tiles(1) - 6.44, tiles(1) + 8.30, tiles(1), tiles(1));
+  placeOnGoal(tiles(1) - 4.09, tiles(2) - 9.67, tiles(1), tiles(2),
+              goal1Level++); // from the south
+
+  // 4. YY 2, then back to Goal 1 from the east.
+  grabFromFloor(tiles(2) - 9.18, tiles(2) - 5.09, tiles(2), tiles(2));
+  placeOnGoal(tiles(1) + 9.89, tiles(2) - 3.51, tiles(1), tiles(2),
+              goal1Level++);
+
+  // 5. Match load loop on Goal 1. Each load must be a Cup with a Pin in it
+  //    so it nests on the Pin below. Places from the south (coming from
+  //    the loader back-out point (26, 16)).
+  int loadsUsed = 0;
+  while (goal1Level < 5 && loadsUsed < 7) {
+    getMatchLoad();
+    placeOnGoal(tiles(1) + 0.99, tiles(2) - 10.46, tiles(1), tiles(2),
+                goal1Level++);
+    loadsUsed++;
+  }
+
+  // 6. Rest of the match loads on red Goal 2 (bottom Quadrant), coming in
+  //    from the south-west. The FIRST load here must be a bare Pin (a Cup
+  //    in an empty goal isn't Placed - SC2), the rest are Cup+Pin.
+  int goal2Level = 0;
+  while (goal2Level < 5 && loadsUsed < 7) {
+    getMatchLoad();
+    placeOnGoal(tiles(2) - 9.93, tiles(1) - 3.42, tiles(2), tiles(1),
+                goal2Level++);
+    loadsUsed++;
+  }
+
+  // 7. Bottom Toggle (bottom wall, x = tiles(3)) -> red. Pass UNDER Goal 2
+  //    (10" off the wall), line up square to the wall, and stop with the
+  //    front ~2" off it (same as the start).
+  liftTo(LIFT_GRAB_DEG); // lower the lift so the robot is stable
+  moveToPoint(tiles(2), 10.0);
+  moveToPoint(tiles(3), tiles(1) - 1.0);
+  turnToHeading(180.0);
+  moveToPoint(tiles(3), 11.0);
+  spinToggle(); // backs up 8"
+
+  // Park in the Midfield (+8), in the middle of the tile just outside the
+  // Midfield's bottom-left edge. The front of the robot is over the
+  // Midfield line while staying ~15" from the tall center Goal and ~16"
+  // from the Pins on the diamond's corners.
+  moveToPoint(tiles(2.5), tiles(2.5));
 }
 
 // Does nothing. Safe default if no auton is chosen.

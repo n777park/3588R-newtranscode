@@ -36,9 +36,23 @@ constexpr double TRACK_WIDTH = 12.0;
 // Robot length front-to-back, in inches (used for distance sensor offsets).
 constexpr double ROBOT_LENGTH = 18.0;
 
+// Robot width side-to-side, in inches (outside of the frame, not the wheels).
+constexpr double ROBOT_WIDTH = 12.5;
+
 // Inside size of the field walls, in inches. A VEX field is nominally 12ft,
 // but the inside of the walls is about 140.4". Measure your field.
 constexpr double FIELD_SIZE = 140.4;
+
+// One foam tile, in inches. The field is 6 x 6 tiles; game objects sit on
+// the seams where tiles meet (manual Appendix A: 23.11, 46.66, 70.20, ...
+// are 23.545" apart). The tiles touching the walls are trimmed ~0.44" each.
+constexpr double TILE = 23.545;
+
+// Tile seam -> inches from the wall. tiles(0) is the wall (off by -0.44"),
+// tiles(1) = 23.11, tiles(2) = 46.66, tiles(3) = 70.20 (field center),
+// ... tiles(6) is the far wall. Fractions work too: tiles(1.5) = middle of
+// a tile.
+constexpr double tiles(double n) { return FIELD_SIZE / 2 + (n - 3) * TILE; }
 
 /*============================================================================*/
 /*                               TRANSMISSION                                 */
@@ -135,6 +149,29 @@ constexpr double JOYSTICK_DEADBAND = 5.0; // percent; ignore tiny stick drift
 constexpr double LIFT_VOLTS = 12.0;       // lift speed when a button is held
 constexpr double CLAW_VOLTS = 10.0;       // claw speed when a button is held
 constexpr double TOGGLE_VOLTS = 12.0;     // active toggle speed
+
+/*============================================================================*/
+/*                      STACKING (lift / claw positions)                      */
+/*        ALL PLACEHOLDERS - measure on the robot with the brain's            */
+/*        device screen (motor degrees, 0 = where the lift starts).           */
+/*============================================================================*/
+
+constexpr double LIFT_GRAB_DEG = 0.0;      // lift down: claw at floor height
+constexpr double LIFT_LOAD_DEG = 150.0;    // claw lined up with loader opening
+constexpr double LIFT_CARRY_DEG = 100.0;   // just off the floor while driving
+// Lift angle to place an object on top of a stack that is already
+// `level` pins tall: LIFT_PLACE_BASE_DEG + level * LIFT_DEG_PER_LEVEL.
+// (level 0 = empty goal.) One Pin/Cup level is about 6.5" tall.
+constexpr double LIFT_PLACE_BASE_DEG = 200.0;
+constexpr double LIFT_DEG_PER_LEVEL = 180.0;
+
+constexpr double CLAW_OPEN_DEG = 0.0;
+constexpr double CLAW_CLOSED_DEG = 90.0;
+
+
+constexpr double TOGGLE_FLIP_VOLTS = 12.0; // active toggle spin to flip
+constexpr int TOGGLE_FLIP_MS = 600;        // how long to spin it
+constexpr int LOAD_WAIT_MS = 800; // time for the loader to drop a match load
 
 /*============================================================================*/
 /*                                 TYPES                                      */
