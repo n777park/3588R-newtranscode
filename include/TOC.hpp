@@ -9,8 +9,10 @@
 /*                                                                            */
 /*    Coordinate system used everywhere:                                      */
 /*      - Units are inches and degrees.                                       */
-/*      - Origin (0,0) is the field corner behind/left of the robot when it   */
-/*        faces heading 0. +Y points "up" the field, +X points to the right.  */
+/*      - Origin (0,0) is the CENTER of the field, like a graph. Seen from    */
+/*        the audience: +Y = north (away), -Y = south (audience wall),        */
+/*        +X = east, -X = west (red Alliance Station wall). Walls are at      */
+/*        +/-FIELD_HALF.                                                      */
 /*      - Heading 0 faces +Y, and heading increases CLOCKWISE (same as the    */
 /*        inertial sensor), so heading 90 faces +X.                           */
 /*                                                                            */
@@ -43,16 +45,9 @@ constexpr double ROBOT_WIDTH = 12.5;
 // but the inside of the walls is about 140.4". Measure your field.
 constexpr double FIELD_SIZE = 140.4;
 
-// One foam tile, in inches. The field is 6 x 6 tiles; game objects sit on
-// the seams where tiles meet (manual Appendix A: 23.11, 46.66, 70.20, ...
-// are 23.545" apart). The tiles touching the walls are trimmed ~0.44" each.
-constexpr double TILE = 23.545;
-
-// Tile seam -> inches from the wall. tiles(0) is the wall (off by -0.44"),
-// tiles(1) = 23.11, tiles(2) = 46.66, tiles(3) = 70.20 (field center),
-// ... tiles(6) is the far wall. Fractions work too: tiles(1.5) = middle of
-// a tile.
-constexpr double tiles(double n) { return FIELD_SIZE / 2 + (n - 3) * TILE; }
+// Center of the field to any wall (70.2"). West wall x = -FIELD_HALF,
+// south wall y = -FIELD_HALF, and so on.
+constexpr double FIELD_HALF = FIELD_SIZE / 2;
 
 /*============================================================================*/
 /*                               TRANSMISSION                                 */
@@ -66,8 +61,8 @@ constexpr double DRIVE_MOTOR_RPM = 200.0;
 constexpr double LOW_GEAR_WHEEL_RPM = 200.0;
 constexpr double HIGH_GEAR_WHEEL_RPM = 400.0;
 
-// The two gears. The integer value is used to index the per-gear PID tables.
-enum class Gear { LOW = 0, HIGH = 1 };
+// The two gears.
+enum class Gear { LOW, HIGH };
 
 // Drive power is cut for this long around a shift so the gears aren't
 // loaded while they engage (the piston fires halfway through).
@@ -88,22 +83,14 @@ struct PIDGains {
 // All gains below are STARTING POINTS - tune them on the real robot.
 // Integral and derivative are per second (see PID::update in motions.cpp).
 
-// Drive (forward/back) gains, indexed by Gear. Error is in inches, output
-// is volts. High gear is twice as fast, so it needs gentler gains.
-constexpr PIDGains DRIVE_GAINS[2] = {
-    {1.2, 0.0, 0.10, 3.0}, // Gear::LOW
-    {0.7, 0.0, 0.08, 3.0}, // Gear::HIGH
-};
+// Auton only runs in high gear (400 rpm), so there is one set of gains,
+// tuned for high gear. Don't run motions in low gear without retuning.
 
-// Turn gains, indexed by Gear. Error is in degrees, output is volts.
-constexpr PIDGains TURN_GAINS[2] = {
-    {0.30, 0.05, 0.015, 10.0}, // Gear::LOW
-    {0.18, 0.03, 0.012, 10.0}, // Gear::HIGH
-};
+// Drive (forward/back) gains. Error is in inches, output is volts.
+constexpr PIDGains DRIVE_GAINS = {0.7, 0.0, 0.08, 3.0};
 
-// Lift / claw position gains. Error is in degrees of motor rotation.
-constexpr PIDGains LIFT_GAINS = {0.08, 0.0, 0.002, 0.0};
-constexpr PIDGains CLAW_GAINS = {0.10, 0.0, 0.002, 0.0};
+// Turn gains. Error is in degrees, output is volts.
+constexpr PIDGains TURN_GAINS = {0.18, 0.03, 0.012, 10.0};
 
 /*============================================================================*/
 /*                         MOTION / LOOP SETTINGS                             */
@@ -114,7 +101,6 @@ constexpr double MAX_VOLTS = 12.0;   // V5 motors max out at 12 volts
 
 constexpr double DRIVE_TOLERANCE = 1.0;  // inches: "close enough" to a point
 constexpr double TURN_TOLERANCE = 1.5;   // degrees: "close enough" to a heading
-constexpr double MECH_TOLERANCE = 5.0;   // degrees: "close enough" for lift/claw
 constexpr int SETTLE_MS = 100;           // must stay in tolerance this long
 
 // When moveToPoint is closer than this, it stops steering. This prevents
@@ -151,23 +137,40 @@ constexpr double CLAW_VOLTS = 10.0;       // claw speed when a button is held
 constexpr double TOGGLE_VOLTS = 12.0;     // active toggle speed
 
 /*============================================================================*/
-/*                      STACKING (lift / claw positions)                      */
-/*        ALL PLACEHOLDERS - measure on the robot with the brain's            */
-/*        device screen (motor degrees, 0 = where the lift starts).           */
+/*                      STACKING (lift / claw settings)                       */
+/*        ALL PLACEHOLDERS - time them on the robot with a stopwatch.         */
 /*============================================================================*/
 
-constexpr double LIFT_GRAB_DEG = 0.0;      // lift down: claw at floor height
-constexpr double LIFT_LOAD_DEG = 150.0;    // claw lined up with loader opening
-constexpr double LIFT_CARRY_DEG = 100.0;   // just off the floor while driving
-// Lift angle to place an object on top of a stack that is already
-// `level` pins tall: LIFT_PLACE_BASE_DEG + level * LIFT_DEG_PER_LEVEL.
-// (level 0 = empty goal.) One Pin/Cup level is about 6.5" tall.
-constexpr double LIFT_PLACE_BASE_DEG = 200.0;
-constexpr double LIFT_DEG_PER_LEVEL = 180.0;
+// The lift is TIME-based (no PID). Each height is "ms of lifting at full
+// LIFT_TIMED_VOLTS, starting from the very bottom". The skills code keeps
+// track of the current height in those ms and runs the lift up or down for
+// the difference.
+constexpr double LIFT_TIMED_VOLTS = 12.0;
+constexpr int LIFT_GRAB_MS = 0;    // all the way down: claw at floor height
+constexpr int LIFT_CARRY_MS = 150; // just off the floor while driving
+constexpr int LIFT_LOAD_MS = 250;  // claw lined up with loader opening
+// Height to place an object on top of a stack that is already `level` pins
+// tall: LIFT_PLACE_BASE_MS + level * LIFT_MS_PER_LEVEL. (level 0 = empty
+// goal.) One Pin/Cup level is about 6.5" tall.
+constexpr int LIFT_PLACE_BASE_MS = 350;
+constexpr int LIFT_MS_PER_LEVEL = 250;
+// Gravity helps going down, so the same distance down usually takes less
+// time. Down time = up time x this.
+constexpr double LIFT_DOWN_SCALE = 0.8;
+// Extra time to keep pushing down when going to the bottom, so the lift
+// really reaches it and the tracked height is exact again.
+constexpr int LIFT_BOTTOM_EXTRA_MS = 150;
 
-constexpr double CLAW_OPEN_DEG = 0.0;
-constexpr double CLAW_CLOSED_DEG = 90.0;
-
+// Ratchet claw (one 11W motor, banded shut). Spinning IN turns the wheels
+// to pull an object in; spinning OUT locks the wheels on the ratchet so the
+// motor opens the jaws instead. Stopped, the bands close it. If IN and OUT
+// are swapped on the robot, flip the claw motor's reverse flag in
+// motions.cpp.
+constexpr double CLAW_GRAB_VOLTS = 8.0;     // spin in (grab)
+constexpr double CLAW_RELEASE_VOLTS = 12.0; // spin out (open, let go)
+constexpr int CLAW_OPEN_MS = 250;           // time for the jaws to open
+constexpr double CLAW_SPIN_OUT_IN = 4.0; // at the loader: inches backed out
+                                         // before the claw stops spinning
 
 constexpr double TOGGLE_FLIP_VOLTS = 12.0; // active toggle spin to flip
 constexpr int TOGGLE_FLIP_MS = 600;        // how long to spin it
@@ -239,6 +242,13 @@ extern vex::motor_group activeToggle; // 5.5W
 extern vex::digital_out transmissionPiston;
 extern vex::inertial imu;
 
+// Raw distance sensors, e.g. leftDistSensor.objectDistance(vex::inches).
+extern vex::distance leftDistSensor;
+extern vex::distance rightDistSensor;
+extern vex::distance backLeftDistSensor;
+extern vex::distance backRightDistSensor;
+
+// The same sensors plus where they're mounted (used by the wall reset).
 extern DistanceMount leftDistance;
 extern DistanceMount rightDistance;
 extern DistanceMount backLeftDistance;
@@ -268,8 +278,6 @@ void stopDrive();
 // ---- Mechanisms (lift, claw, active toggle) ----
 void spinMechanism(vex::motor_group &mech, double volts); // 0 = hold
 double buttonVolts(bool forward, bool reverse, double volts);
-void moveMechanismTo(vex::motor_group &mech, double targetDeg,
-                     const PIDGains &gains, int timeoutMs);
 
 // ---- Motions (all PID, all use odometry) ----
 void turnToHeading(double heading, int timeoutMs = 2000,

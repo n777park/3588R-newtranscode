@@ -53,17 +53,18 @@ motor_group claw(clawMotor);
 static motor toggleMotor(PORT10, ratio18_1, false);
 motor_group activeToggle(toggleMotor);
 
-// Transmission shifter: one piston. Extended = high gear (400 rpm).
+// Transmission shifter: one piston. Retracted = high gear (400 rpm),
+// extended = low gear (200 rpm).
 digital_out transmissionPiston(Brain.ThreeWirePort.A);
 
 inertial imu(PORT11);
 
 // Distance sensors: one on each side, two on the back. Offsets are inches
 // from the tracking center (+x right, +y forward). Measure and update them.
-static distance leftDistSensor(PORT12);
-static distance rightDistSensor(PORT13);
-static distance backLeftDistSensor(PORT14);
-static distance backRightDistSensor(PORT15);
+distance leftDistSensor(PORT12);
+distance rightDistSensor(PORT13);
+distance backLeftDistSensor(PORT14);
+distance backRightDistSensor(PORT15);
 DistanceMount leftDistance{leftDistSensor, -6.0, 0.0, 270.0};
 DistanceMount rightDistance{rightDistSensor, 6.0, 0.0, 90.0};
 DistanceMount backLeftDistance{backLeftDistSensor, -5.0, -ROBOT_LENGTH / 2,
@@ -155,8 +156,9 @@ private:
 /*                            4. TRANSMISSION                                 */
 /*============================================================================*/
 
-// The single source of truth for which gear we are in.
-static Gear currentGear = Gear::LOW;
+// The single source of truth for which gear we are in. Starts HIGH because
+// the piston powers on retracted, which is high gear.
+static Gear currentGear = Gear::HIGH;
 
 // While the brain's clock (ms) is below this, arcadeVolts outputs 0. This
 // keeps the driver loop from re-powering the drive in the middle of a shift.
@@ -167,7 +169,7 @@ static uint32_t shiftPauseUntilMs = 0;
 // Blocks for SHIFT_PAUSE_MS in that case.
 void setGear(Gear gear) {
   if (gear == currentGear) {
-    transmissionPiston.set(gear == Gear::HIGH); // make sure piston agrees
+    transmissionPiston.set(gear == Gear::LOW); // make sure piston agrees
     return;
   }
   shiftPauseUntilMs = timer::system() + SHIFT_PAUSE_MS;
@@ -176,7 +178,7 @@ void setGear(Gear gear) {
   this_thread::sleep_for(SHIFT_PAUSE_MS / 2);
 
   currentGear = gear;
-  transmissionPiston.set(gear == Gear::HIGH);
+  transmissionPiston.set(gear == Gear::LOW); // extended = low gear
   this_thread::sleep_for(SHIFT_PAUSE_MS / 2);
 }
 
@@ -247,26 +249,6 @@ double buttonVolts(bool forward, bool reverse, double volts) {
   return 0.0;
 }
 
-// PID a mechanism to a motor angle (degrees), then hold it there.
-void moveMechanismTo(motor_group &mech, double targetDeg,
-                     const PIDGains &gains, int timeoutMs) {
-  PID pid(gains);
-  SettleTimer settle;
-  timer elapsed;
-
-  while (elapsed.time(timeUnits::msec) < timeoutMs) {
-    double error = targetDeg - mech.position(rotationUnits::deg);
-    if (settle.update(std::fabs(error) < MECH_TOLERANCE))
-      break;
-    // Spin directly (not spinMechanism) so an output of exactly 0 volts
-    // mid-motion doesn't switch to hold.
-    double volts = clamp(pid.update(error), MAX_VOLTS);
-    mech.spin(directionType::fwd, volts, voltageUnits::volt);
-    this_thread::sleep_for(LOOP_MS);
-  }
-  spinMechanism(mech, 0.0);
-}
-
 /*============================================================================*/
 /*                               7. MOTIONS                                   */
 /*============================================================================*/
@@ -281,7 +263,7 @@ static double headingTo(double x, double y, bool reverse) {
 
 // Turn in place to a field heading (degrees, clockwise, 0 = +Y).
 void turnToHeading(double heading, int timeoutMs, double maxVolts) {
-  PID turnPID(TURN_GAINS[(int)getGear()]);
+  PID turnPID(TURN_GAINS);
   SettleTimer settle;
   timer elapsed;
 
@@ -305,8 +287,8 @@ void turnToPoint(double x, double y, bool reverse, int timeoutMs,
 // Drive to (x, y) while steering toward it. With reverse, drives backward.
 void moveToPoint(double x, double y, bool reverse, int timeoutMs,
                  double maxVolts) {
-  PID drivePID(DRIVE_GAINS[(int)getGear()]);
-  PID turnPID(TURN_GAINS[(int)getGear()]);
+  PID drivePID(DRIVE_GAINS);
+  PID turnPID(TURN_GAINS);
   SettleTimer settle;
   timer elapsed;
   double targetHeading = headingTo(x, y, reverse);
@@ -377,10 +359,10 @@ static void fixFromWall(const DistanceMount &mount, double reading,
   // The beam mostly points along X or Y: that tells us which wall it hits.
   // center = wall - (sensor offset + beam length along that axis)
   if (std::fabs(beamX) > std::fabs(beamY)) {
-    double wallX = beamX > 0 ? FIELD_SIZE : 0.0;
+    double wallX = beamX > 0 ? FIELD_HALF : -FIELD_HALF;
     pose.x = wallX - (offsetX + reading * beamX);
   } else {
-    double wallY = beamY > 0 ? FIELD_SIZE : 0.0;
+    double wallY = beamY > 0 ? FIELD_HALF : -FIELD_HALF;
     pose.y = wallY - (offsetY + reading * beamY);
   }
 }
