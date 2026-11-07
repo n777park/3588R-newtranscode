@@ -52,16 +52,40 @@ static void matchLeft() {
 
 // Match auton starting on the right side (mirror of the left side).
 static void matchRight() {
-  // Facing north: right sensor sees the east wall, back sees the south wall.
+    // Facing north: right sensor sees the east wall, back sees the south wall.
   setPose({FIELD_HALF - rightDistSensor.objectDistance(inches) - 6.0,
            -FIELD_HALF + backRightDistSensor.objectDistance(inches) + 9.0,
            0.0});
-  moveToPoint(FIELD_HALF - 24.0, -FIELD_HALF + 48.0);
-  spinMechanism(lift, LIFT_VOLTS); // raise the lift for 0.5 s
-  wait(500, msec);
+  spinMechanism(activeToggle, TOGGLE_VOLTS); // start the toggle spinning in
+  wait(300, msec); // let it run for 3.0 s, then stop
+  spinMechanism(activeToggle, 0.0);
+  thread raiselift = thread([]() {
+    spinMechanism(lift, LIFT_VOLTS); // raise the lift for 0.5 s
+    wait(500, msec);
+    spinMechanism(lift, 0.0);
+  });
+  moveToPoint(-10, -48.0, 500);
+  moveToPoint(-24, -48.0, 600);
+  spinMechanism(lift, -LIFT_VOLTS); // lower the lift for 0.5 s
+  wait(300, msec);
   spinMechanism(lift, 0.0);
-  turnToPoint(FIELD_HALF - 48.0, -FIELD_HALF + 48.0);
-  moveToPoint(FIELD_HALF - 48.0, -FIELD_HALF + 48.0);
+  moveToPoint(-10, -48.0, 500);
+  turnToPoint(-25,-64.0);
+  moveToPoint(-22,-64.0, 800); //grab pin on wall
+  thread raiselift2 = thread([]() {
+    spinMechanism(lift, LIFT_VOLTS); // raise the lift for 0.5 s
+    wait(1000, msec);
+    spinMechanism(lift, 0.0);
+  });
+  moveToPoint(-10,-48.0, 800);
+  turnToPoint(-24,-48);
+  thread lowerlift = thread([]() {
+    wait(300, msec);
+    spinMechanism(lift, -LIFT_VOLTS); // raise the lift for 0.5 s
+    wait(1000, msec);
+    spinMechanism(lift, 0.0);
+  });
+  moveToPoint(-24,-48.0, 800);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -79,7 +103,7 @@ static void backUp(double inches) {
   Pose pose = getPose();
   double h = toRadians(pose.theta);
   moveToPoint(pose.x - inches * std::sin(h), pose.y - inches * std::cos(h),
-              true, 1500);
+              1500, true);
 }
 
 // The claw is a ratchet claw on one 11W motor, banded shut:
@@ -185,7 +209,7 @@ static void getMatchLoad() {
   wait(LOAD_WAIT_MS, msec);
   backUp(CLAW_SPIN_OUT_IN); // still spinning
   clawStop();
-  moveToPoint(-44.20, -54.20, true); // back out
+  moveToPoint(-44.20, -54.20, 4000, true); // back out
 }
 
 // Spin the active toggle to flip the Toggle in front of us to red, then
@@ -232,10 +256,12 @@ static void spinToggle(float timeoutMs=500) {
 // reaches all four.
 static void skills() {
  
-  // Facing the west wall, so the left sensor sees the south wall (6" =
-  // sensor to robot center). x is fixed: no sensor faces the west wall.
-  setPose({-FIELD_HALF + backLeftDistSensor.objectDistance(inches) + 9.0,
-           -FIELD_HALF + leftDistSensor.objectDistance(inches) + 6.0,
+  // Facing the west wall. x: the front sensor sees the west Toggle, which
+  // sticks out ~2" from the wall. y: the left sensor sees the south wall.
+  setPose({-FIELD_HALF + 2.0 + frontLeftDistSensor.objectDistance(inches) +
+               frontSensorOffset,
+           -FIELD_HALF + leftDistSensor.objectDistance(inches) +
+               lateralSensorOffset,
            270.0});
 
   // 1. West Toggle -> red, without driving. Owns the yellow halves stacked

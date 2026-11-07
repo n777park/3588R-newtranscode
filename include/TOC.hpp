@@ -187,15 +187,6 @@ struct Pose {
   double theta; // degrees, clockwise, 0 = facing +Y
 };
 
-// A distance sensor plus where it is mounted on the robot. Offsets are
-// measured from the robot's tracking center: +x to the right, +y forward.
-struct DistanceMount {
-  vex::distance &sensor;
-  double x;      // inches right of center (negative = left)
-  double y;      // inches forward of center (negative = behind)
-  double facing; // degrees the sensor points, relative to robot forward
-                 // (0 = front, 90 = right, 180 = back, 270 = left)
-};
 
 // A PID controller. Create one per motion, call update() every loop.
 class PID {
@@ -247,12 +238,15 @@ extern vex::distance leftDistSensor;
 extern vex::distance rightDistSensor;
 extern vex::distance backLeftDistSensor;
 extern vex::distance backRightDistSensor;
+extern vex::distance frontLeftDistSensor;
+extern vex::distance frontRightDistSensor;
 
-// The same sensors plus where they're mounted (used by the wall reset).
-extern DistanceMount leftDistance;
-extern DistanceMount rightDistance;
-extern DistanceMount backLeftDistance;
-extern DistanceMount backRightDistance;
+// Where the sensors sit on the robot, in inches from the tracking center
+// (set in motions.cpp, used by the wall reset).
+extern float lateralSensorOffset; // side sensors: left/right of center
+extern float backSensorOffset;    // back sensors: behind center
+extern float frontSensorOffset;   // front sensors: ahead of center
+extern float backSensorSpacing;   // back sensors: left one to right one
 
 /*============================================================================*/
 /*                     SHARED FUNCTIONS  (motions.cpp)                        */
@@ -284,8 +278,8 @@ void turnToHeading(double heading, int timeoutMs = 2000,
                    double maxVolts = MAX_VOLTS);
 void turnToPoint(double x, double y, bool reverse = false,
                  int timeoutMs = 2000, double maxVolts = MAX_VOLTS);
-void moveToPoint(double x, double y, bool reverse = false,
-                 int timeoutMs = 4000, double maxVolts = MAX_VOLTS);
+void moveToPoint(double x, double y, int timeoutMs = 4000,
+                 bool reverse = false, double maxVolts = MAX_VOLTS);
 
 // ---- Wall reset ----
 bool resetHeadingOffBackWall(); // true if both back sensors saw a wall

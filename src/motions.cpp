@@ -32,9 +32,9 @@ controller Controller(primary);
 // Drive: 55W total = 4x 11W + 2x 5.5W (3 motors per side). 5.5W motors use
 // the normal `motor` class; their gear setting is ignored (always 200 rpm).
 static motor leftFront(PORT1, ratio18_1, true);
-static motor leftMiddle(PORT2, ratio18_1, true); // 5.5W
+static motor leftMiddle(PORT2, ratio18_1, false); // 5.5W
 static motor leftBack(PORT3, ratio18_1, true);
-static motor rightFront(PORT4, ratio18_1, false);
+static motor rightFront(PORT4, ratio18_1, true);
 static motor rightMiddle(PORT5, ratio18_1, false); // 5.5W
 static motor rightBack(PORT6, ratio18_1, false);
 motor_group leftDrive(leftFront, leftMiddle, leftBack);
@@ -59,18 +59,20 @@ digital_out transmissionPiston(Brain.ThreeWirePort.A);
 
 inertial imu(PORT11);
 
-// Distance sensors: one on each side, two on the back. Offsets are inches
-// from the tracking center (+x right, +y forward). Measure and update them.
+// Distance sensors: one on each side, two on the back, two on the front.
 distance leftDistSensor(PORT12);
 distance rightDistSensor(PORT13);
 distance backLeftDistSensor(PORT14);
 distance backRightDistSensor(PORT15);
-DistanceMount leftDistance{leftDistSensor, -6.0, 0.0, 270.0};
-DistanceMount rightDistance{rightDistSensor, 6.0, 0.0, 90.0};
-DistanceMount backLeftDistance{backLeftDistSensor, -5.0, -ROBOT_LENGTH / 2,
-                               180.0};
-DistanceMount backRightDistance{backRightDistSensor, 5.0, -ROBOT_LENGTH / 2,
-                                180.0};
+distance frontLeftDistSensor(PORT16);
+distance frontRightDistSensor(PORT17);
+
+// Where the sensors sit, in inches from the tracking center. Measure these.
+float lateralSensorOffset = 6.0; // side sensors: left/right of center
+float backSensorOffset = 9.0;    // back sensors: behind center
+float frontSensorOffset = 9.0;   // front sensors: ahead of center
+float backSensorSpacing = 10.0;  // back sensors: left one to right one
+                                 // (centered on the robot)
 
 /*============================================================================*/
 /*                            2. MATH HELPERS                                 */
@@ -285,7 +287,7 @@ void turnToPoint(double x, double y, bool reverse, int timeoutMs,
 }
 
 // Drive to (x, y) while steering toward it. With reverse, drives backward.
-void moveToPoint(double x, double y, bool reverse, int timeoutMs,
+void moveToPoint(double x, double y, int timeoutMs, bool reverse,
                  double maxVolts) {
   PID drivePID(DRIVE_GAINS);
   PID turnPID(TURN_GAINS);
@@ -332,27 +334,32 @@ void moveToPoint(double x, double y, bool reverse, int timeoutMs,
 /*============================================================================*/
 
 // Reads a distance sensor in inches. Returns -1 if it doesn't see a wall.
-static double readInches(const DistanceMount &mount) {
-  if (!mount.sensor.isObjectDetected())
+static double readInches(distance &sensor) {
+  if (!sensor.isObjectDetected())
     return -1.0;
-  double inches = mount.sensor.objectDistance(distanceUnits::in);
+  double inches = sensor.objectDistance(distanceUnits::in);
   return inches <= DIST_MAX_VALID ? inches : -1.0;
 }
 
 // Given one sensor reading and the robot heading, work out which wall the
 // sensor beam hits and where the robot's center must be. Writes the answer
 // into pose.x or pose.y (whichever axis that wall measures).
-static void fixFromWall(const DistanceMount &mount, double reading,
-                        Pose &pose) {
+//   sensorRight   - inches the sensor sits right of center (negative = left)
+//   sensorForward - inches the sensor sits forward of center (negative =
+//                   behind)
+//   facing        - degrees the sensor points, relative to robot forward
+//                   (0 = front, 90 = right, 180 = back, 270 = left)
+static void fixFromWall(double sensorRight, double sensorForward,
+                        double facing, double reading, Pose &pose) {
   double h = toRadians(pose.theta);
 
   // Where the sensor sits relative to the robot center, in field axes.
   // Robot right = (cos h, -sin h), robot forward = (sin h, cos h).
-  double offsetX = mount.x * std::cos(h) + mount.y * std::sin(h);
-  double offsetY = -mount.x * std::sin(h) + mount.y * std::cos(h);
+  double offsetX = sensorRight * std::cos(h) + sensorForward * std::sin(h);
+  double offsetY = -sensorRight * std::sin(h) + sensorForward * std::cos(h);
 
   // Direction the sensor beam points, in field axes.
-  double beam = toRadians(pose.theta + mount.facing);
+  double beam = toRadians(pose.theta + facing);
   double beamX = std::sin(beam);
   double beamY = std::cos(beam);
 
@@ -377,8 +384,8 @@ static void fixFromWall(const DistanceMount &mount, double reading,
 //  3. With the true heading known, the back sensors give the distance to
 //     the back wall, and the closer side sensor gives the side wall.
 bool resetHeadingOffBackWall() {
-  double backLeft = readInches(backLeftDistance);
-  double backRight = readInches(backRightDistance);
+  double backLeft = readInches(backLeftDistSensor);
+  double backRight = readInches(backRightDistSensor);
   if (backLeft < 0 || backRight < 0)
     return false; // can't see the wall - leave the pose alone
 
@@ -386,26 +393,31 @@ bool resetHeadingOffBackWall() {
 
   // 1 + 2: true heading = which wall + how crooked we are against it.
   double wallHeading = std::round(pose.theta / 90.0) * 90.0;
-  double spacing = backRightDistance.x - backLeftDistance.x;
-  double skew = toDegrees(std::atan2(backLeft - backRight, spacing));
+  double skew =
+      toDegrees(std::atan2(backLeft - backRight, backSensorSpacing));
   pose.theta = wrap360(wallHeading + skew);
 
-  // 3a: back wall position = average of both back sensors.
+  // 3a: back wall position = average of both back sensors. Each sits
+  // backSensorOffset behind center and half the spacing left/right of it,
+  // pointing backward (180).
   Pose fromLeft = pose;
   Pose fromRight = pose;
-  fixFromWall(backLeftDistance, backLeft, fromLeft);
-  fixFromWall(backRightDistance, backRight, fromRight);
+  fixFromWall(-backSensorSpacing / 2, -backSensorOffset, 180.0, backLeft,
+              fromLeft);
+  fixFromWall(backSensorSpacing / 2, -backSensorOffset, 180.0, backRight,
+              fromRight);
   pose.x = (fromLeft.x + fromRight.x) / 2.0;
   pose.y = (fromLeft.y + fromRight.y) / 2.0;
 
   // 3b: side wall position from whichever side sensor is closer (closer
-  // readings are more accurate). Skipped if neither sees a wall.
-  double left = readInches(leftDistance);
-  double right = readInches(rightDistance);
+  // readings are more accurate). Skipped if neither sees a wall. Side
+  // sensors sit lateralSensorOffset left/right of center, pointing out.
+  double left = readInches(leftDistSensor);
+  double right = readInches(rightDistSensor);
   if (left >= 0 && (right < 0 || left <= right))
-    fixFromWall(leftDistance, left, pose);
+    fixFromWall(-lateralSensorOffset, 0.0, 270.0, left, pose);
   else if (right >= 0)
-    fixFromWall(rightDistance, right, pose);
+    fixFromWall(lateralSensorOffset, 0.0, 90.0, right, pose);
 
   setPose(pose);
   return true;
