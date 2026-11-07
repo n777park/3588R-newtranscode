@@ -31,12 +31,23 @@ static void matchLeft() {
   setPose({-FIELD_HALF + leftDistSensor.objectDistance(inches) + 6.0,
            -FIELD_HALF + backLeftDistSensor.objectDistance(inches) + 9.0,
            0.0});
-  moveToPoint(-FIELD_HALF + 24.0, -FIELD_HALF + 48.0);
+  turnToPoint(-48.0, -24.0);
+  moveToPoint(-48.0, -24.0);
   spinMechanism(lift, LIFT_VOLTS); // raise the lift for 0.5 s
   wait(500, msec);
   spinMechanism(lift, 0.0);
-  turnToPoint(-FIELD_HALF + 48.0, -FIELD_HALF + 48.0);
-  moveToPoint(-FIELD_HALF + 48.0, -FIELD_HALF + 48.0);
+  turnToPoint(-24.0, -24.0);
+  moveToPoint(-24.0, -24.0);
+  // Claw Picks up
+  turnToPoint(-48.0, -24.0);
+  moveToPoint(-48.0, -24.0);
+  // Claw Places down
+  turnToPoint(-48.0, -48.0);
+  moveToPoint(-48.0, -48.0);
+  //Claw Picks up
+  turnToPoint(-48.0, -24.0);
+  moveToPoint(-48.0, -24.0);
+  //Claw Places down
 }
 
 // Match auton starting on the right side (mirror of the left side).
