@@ -87,10 +87,10 @@ struct PIDGains {
 // tuned for high gear. Don't run motions in low gear without retuning.
 
 // Drive (forward/back) gains. Error is in inches, output is volts.
-constexpr PIDGains DRIVE_GAINS = {1.0, 0.0, 0.01, 3.0};
+constexpr PIDGains DRIVE_GAINS = {2.0, 0.0, 0.137, 3.0};
 
 // Turn gains. Error is in degrees, output is volts.
-constexpr PIDGains TURN_GAINS = {0.18, 0.0, 0.012, 10.0};
+constexpr PIDGains TURN_GAINS = {5.0, 0.0, 0.512, 10.0};
 
 /*============================================================================*/
 /*                         MOTION / LOOP SETTINGS                             */
@@ -288,10 +288,17 @@ void spinLift(double volts);           // + = up; won't go below the bottom
 void runLiftFor(double volts, int ms); // spinLift for a time, then hold
 
 // ---- Motions (all PID, all use odometry) ----
-void turnToHeading(double heading, int timeoutMs = 2000,
-                   double maxVolts = MAX_VOLTS);
-void turnToPoint(double x, double y, bool reverse = false,
-                 int timeoutMs = 2000, double maxVolts = MAX_VOLTS);
+// Which way a turn goes. SHORTEST picks whichever way is less than 180;
+// LONGEST picks the other way (more than 180).
+enum class TurnDirection { SHORTEST, CLOCKWISE, COUNTERCLOCKWISE, LONGEST };
+
+void turnToHeading(double heading,
+                   TurnDirection dir = TurnDirection::SHORTEST,
+                   int timeoutMs = 2000, double maxVolts = MAX_VOLTS);
+void turnToPoint(double x, double y,
+                 TurnDirection dir = TurnDirection::SHORTEST,
+                 bool reverse = false, int timeoutMs = 2000,
+                 double maxVolts = MAX_VOLTS);
 void moveToPoint(double x, double y, int timeoutMs = 4000,
                  bool reverse = false, double maxVolts = MAX_VOLTS);
 

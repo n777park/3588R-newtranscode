@@ -319,7 +319,10 @@ static void skills() {
 static void doNothing() {
   // (No fixed wait needed: autonomous() already waits until odometry runs.)
   setPose({0.0, 0.0, 0.0}); // facing north, in the middle of the field
-  moveToPoint(0.0, 24.0);        // just to make sure the odometry is running
+  // moveToPoint(0.0, 24.0);        // just to make sure the odometry is running
+  // The long way: 0 -> 270 is 90 deg counterclockwise the short way, so this
+  // spins 270 deg clockwise. 3 s timeout so the longer turn can finish.
+  turnToHeading(270.0, TurnDirection::LONGEST, 3000);
 }
 
 // Test / tuning routine: drive a square-ish path and come back.

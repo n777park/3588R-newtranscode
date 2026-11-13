@@ -305,15 +305,40 @@ static double headingTo(double x, double y, bool reverse) {
   return wrap360(reverse ? heading + 180.0 : heading);
 }
 
-// Turn in place to a field heading (degrees, clockwise, 0 = +Y).
-void turnToHeading(double heading, int timeoutMs, double maxVolts) {
+// Turn in place to a field heading (degrees, clockwise, 0 = +Y), going the
+// way `dir` says. A forced direction is only kept until the robot is within
+// 90 degrees of the target; after that it goes the shortest way, so a small
+// overshoot is corrected back instead of spinning another full circle.
+// (Default arguments live in TOC.hpp only - C++ doesn't allow them here too.)
+void turnToHeading(double heading, TurnDirection dir, int timeoutMs,
+                   double maxVolts) {
   PID turnPID(TURN_GAINS);
   SettleTimer settle;
   timer elapsed;
 
+  // LONGEST: decide once, at the start, which way round is longer - the
+  // opposite of the shortest way. (Positive error = clockwise.)
+  if (dir == TurnDirection::LONGEST)
+    dir = wrap180(heading - getPose().theta) > 0.0
+              ? TurnDirection::COUNTERCLOCKWISE
+              : TurnDirection::CLOCKWISE;
+  bool forced = dir != TurnDirection::SHORTEST;
+
   while (elapsed.time(timeUnits::msec) < timeoutMs) {
     // Shortest way around: error is always between -180 and 180.
     double error = wrap180(heading - getPose().theta);
+    if (forced) {
+      // Clockwise = positive error in [0, 360), counterclockwise = negative
+      // in (-360, 0].
+      double cw = wrap360(heading - getPose().theta);
+      double forcedError = dir == TurnDirection::CLOCKWISE
+                               ? cw
+                               : (cw == 0.0 ? 0.0 : cw - 360.0);
+      if (std::fabs(forcedError) < 90.0)
+        forced = false; // close now: shortest way from here on
+      else
+        error = forcedError;
+    }
     if (settle.update(std::fabs(error) < TURN_TOLERANCE))
       break;
     arcadeVolts(0.0, clamp(turnPID.update(error), maxVolts));
@@ -322,10 +347,11 @@ void turnToHeading(double heading, int timeoutMs, double maxVolts) {
   stopDrive();
 }
 
-// Turn in place to face (x, y). With reverse, the back faces the point.
-void turnToPoint(double x, double y, bool reverse, int timeoutMs,
-                 double maxVolts) {
-  turnToHeading(headingTo(x, y, reverse), timeoutMs, maxVolts);
+// Turn in place to face (x, y), going the way `dir` says. With reverse, the
+// back faces the point.
+void turnToPoint(double x, double y, TurnDirection dir, bool reverse,
+                 int timeoutMs, double maxVolts) {
+  turnToHeading(headingTo(x, y, reverse), dir, timeoutMs, maxVolts);
 }
 
 // Drive to (x, y) while steering toward it. With reverse, drives backward.
