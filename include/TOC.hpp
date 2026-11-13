@@ -87,10 +87,10 @@ struct PIDGains {
 // tuned for high gear. Don't run motions in low gear without retuning.
 
 // Drive (forward/back) gains. Error is in inches, output is volts.
-constexpr PIDGains DRIVE_GAINS = {0.7, 0.0, 0.08, 3.0};
+constexpr PIDGains DRIVE_GAINS = {1.0, 0.0, 0.01, 3.0};
 
 // Turn gains. Error is in degrees, output is volts.
-constexpr PIDGains TURN_GAINS = {0.18, 0.03, 0.012, 10.0};
+constexpr PIDGains TURN_GAINS = {0.18, 0.0, 0.012, 10.0};
 
 /*============================================================================*/
 /*                         MOTION / LOOP SETTINGS                             */
@@ -136,10 +136,22 @@ constexpr double LIFT_VOLTS = 12.0;       // lift speed when a button is held
 constexpr double CLAW_VOLTS = 10.0;       // claw speed when a button is held
 constexpr double TOGGLE_VOLTS = 12.0;     // active toggle speed
 
+// Heading lock: while the driver isn't turning, the robot holds the heading
+// it was left at (X turns it on/off).
+constexpr double HEADING_LOCK_KP = 0.19;     // volts per degree of heading error
+constexpr double HEADING_LOCK_DEADBAND = 0.5; // degrees of error to ignore
+constexpr int HEADING_LOCK_SETTLE_MS = 200;   // let the robot coast this long
+                                              // after a turn before locking
+
 /*============================================================================*/
 /*                      STACKING (lift / claw settings)                       */
 /*        ALL PLACEHOLDERS - time them on the robot with a stopwatch.         */
 /*============================================================================*/
+
+// Lift hard stop: the lift's encoder (the 11W motor, port 1) is set to 0 deg
+// when the program starts - with the lift all the way down - and nothing is
+// allowed to drive the lift below this (see spinLift in motions.cpp).
+constexpr double LIFT_BOTTOM_DEG = 0.0;
 
 // The lift is TIME-based (no PID). Each height is "ms of lifting at full
 // LIFT_TIMED_VOLTS, starting from the very bottom". The skills code keeps
@@ -272,6 +284,8 @@ void stopDrive();
 // ---- Mechanisms (lift, claw, active toggle) ----
 void spinMechanism(vex::motor_group &mech, double volts); // 0 = hold
 double buttonVolts(bool forward, bool reverse, double volts);
+void spinLift(double volts);           // + = up; won't go below the bottom
+void runLiftFor(double volts, int ms); // spinLift for a time, then hold
 
 // ---- Motions (all PID, all use odometry) ----
 void turnToHeading(double heading, int timeoutMs = 2000,

@@ -33,9 +33,7 @@ static void matchLeft() {
            0.0});
   turnToPoint(-48.0, -24.0);
   moveToPoint(-48.0, -24.0);
-  spinMechanism(lift, LIFT_VOLTS); // raise the lift for 0.5 s
-  wait(500, msec);
-  spinMechanism(lift, 0.0);
+  runLiftFor(LIFT_VOLTS, 500); // raise the lift for 0.5 s
   turnToPoint(-24.0, -24.0);
   moveToPoint(-24.0, -24.0);
   // Claw Picks up
@@ -60,30 +58,22 @@ static void matchRight() {
   wait(300, msec); // let it run for 3.0 s, then stop
   spinMechanism(activeToggle, 0.0);
   thread raiselift = thread([]() {
-    spinMechanism(lift, LIFT_VOLTS); // raise the lift for 0.5 s
-    wait(500, msec);
-    spinMechanism(lift, 0.0);
+    runLiftFor(LIFT_VOLTS, 500); // raise the lift for 0.5 s
   });
   moveToPoint(-10, -48.0, 500);
   moveToPoint(-24, -48.0, 600);
-  spinMechanism(lift, -LIFT_VOLTS); // lower the lift for 0.5 s
-  wait(300, msec);
-  spinMechanism(lift, 0.0);
+  runLiftFor(-LIFT_VOLTS, 300); // lower the lift for 0.3 s
   moveToPoint(-10, -48.0, 500);
   turnToPoint(-25,-64.0);
   moveToPoint(-22,-64.0, 800); //grab pin on wall
   thread raiselift2 = thread([]() {
-    spinMechanism(lift, LIFT_VOLTS); // raise the lift for 0.5 s
-    wait(1000, msec);
-    spinMechanism(lift, 0.0);
+    runLiftFor(LIFT_VOLTS, 1000); // raise the lift for 1 s
   });
   moveToPoint(-10,-48.0, 800);
   turnToPoint(-24,-48);
   thread lowerlift = thread([]() {
     wait(300, msec);
-    spinMechanism(lift, -LIFT_VOLTS); // raise the lift for 0.5 s
-    wait(1000, msec);
-    spinMechanism(lift, 0.0);
+    runLiftFor(-LIFT_VOLTS, 1000); // lower the lift for 1 s
   });
   moveToPoint(-24,-48.0, 800);
 }
@@ -127,22 +117,22 @@ static void clawStop() { claw.stop(brakeType::coast); }
 static int liftHeightMs = 0;
 
 // Run the lift up or down for the time it takes to get from the current
-// height to targetMs, then hold it there. Going to the bottom (0) pushes
-// down a little extra so the lift really bottoms out, which wipes out any
-// timing error that has built up.
+// height to targetMs, then hold it there. Going to the bottom (0) allows a
+// little extra time so the lift really bottoms out, which wipes out any
+// timing error that has built up - the hard stop (spinLift) stops it at
+// 0 deg, so the extra time can't drive it below the bottom.
 static void liftTo(int targetMs) {
   int diff = targetMs - liftHeightMs;
   if (diff > 0) {
-    lift.spin(directionType::fwd, LIFT_TIMED_VOLTS, voltageUnits::volt);
-    wait(diff, msec);
+    runLiftFor(LIFT_TIMED_VOLTS, diff);
   } else if (diff < 0 || targetMs == 0) {
     int downMs = (int)(-diff * LIFT_DOWN_SCALE);
     if (targetMs == 0)
       downMs += LIFT_BOTTOM_EXTRA_MS;
-    lift.spin(directionType::rev, LIFT_TIMED_VOLTS, voltageUnits::volt);
-    wait(downMs, msec);
+    runLiftFor(-LIFT_TIMED_VOLTS, downMs);
+  } else {
+    spinLift(0.0);
   }
-  lift.stop(brakeType::hold);
   liftHeightMs = targetMs;
 }
 
@@ -326,7 +316,11 @@ static void skills() {
 }
 
 // Does nothing. Safe default if no auton is chosen.
-static void doNothing() {}
+static void doNothing() {
+  // (No fixed wait needed: autonomous() already waits until odometry runs.)
+  setPose({0.0, 0.0, 0.0}); // facing north, in the middle of the field
+  moveToPoint(0.0, 24.0);        // just to make sure the odometry is running
+}
 
 // Test / tuning routine: drive a square-ish path and come back.
 static void test() {
@@ -391,8 +385,57 @@ static void onScreenPressed() {
 /*                           COMPETITION CALLBACKS                            */
 /*============================================================================*/
 
+// Set at the end of pre_auton, once the IMU is calibrated and odometry is
+// running. VEXcode starts autonomous the moment a timed run (or the field)
+// enables it - it does NOT wait for pre_auton like PROS waits for
+// initialize() - so autonomous() waits for this instead.
+static volatile bool robotReady = false;
+
+// Background task: shows the odometry pose on the controller screen the
+// whole time - while the IMU calibrates, during autonomous, and during
+// driver control - so it's visible during a timed run too. The controller
+// screen is slow and drops updates if it's sent too much, so it writes one
+// line every 100 ms.
+//   Line 1: X: <x>  Y: <y>    (inches, field center = 0, 0)
+//   Line 2: H: <heading>  <gear>  (degrees, clockwise, 0 = north)
+// Until pre_auton finishes, line 1 says "Calibrating IMU" instead.
+static int controllerDisplayTask() {
+  Controller.Screen.clearScreen();
+  bool firstLine = true;
+  while (true) {
+    if (!robotReady) {
+      Controller.Screen.setCursor(1, 1);
+      Controller.Screen.print("Calibrating IMU  ");
+      wait(100, msec);
+      continue;
+    }
+    Pose pose = getPose();
+    if (firstLine) {
+      Controller.Screen.setCursor(1, 1);
+      Controller.Screen.print("X:%6.1f Y:%6.1f  ", pose.x, pose.y);
+    } else {
+      Controller.Screen.setCursor(2, 1);
+      Controller.Screen.print("H:%6.1f  %s     ", pose.theta,
+                              getGear() == Gear::HIGH ? "400" : "200");
+    }
+    firstLine = !firstLine;
+    wait(100, msec);
+  }
+  return 0;
+}
+
 // Runs once at power-on. Calibrate sensors, start odometry, show selector.
 void pre_auton(void) {
+  // Lift hard stop: wherever the lift is right now is 0 deg, and it can
+  // never be lowered below that - so START THE PROGRAM WITH THE LIFT ALL THE
+  // WAY DOWN. Done first, before the ~2 s IMU calibration, so the lift
+  // can't have moved yet.
+  lift.resetPosition();
+
+  // Start the controller display first, so it's already running if a timed
+  // run starts autonomous while the IMU is still calibrating.
+  thread displayThread(controllerDisplayTask);
+
   setGear(Gear::HIGH); // piston retracted = 400 rpm
 
   // The robot must sit still while the inertial sensor calibrates (~2 s).
@@ -404,6 +447,7 @@ void pre_auton(void) {
     wait(20, msec);
 
   startOdometry();
+  robotReady = true; // autonomous can start now
 
   drawSelector();
   Brain.Screen.pressed(onScreenPressed);
@@ -412,6 +456,15 @@ void pre_auton(void) {
 // Run whichever auton is selected on the brain screen.
 // Case numbers must match the positions in AUTON_NAMES.
 void autonomous(void) {
+  // A timed run starts autonomous the moment the program starts, while
+  // pre_auton is still calibrating the IMU (~2 s). Wait for it to finish:
+  // otherwise the auton drives with no odometry running, and
+  // startOdometry() then resets the pose to (0, 0) partway through. In a
+  // real match the program is started before the match, so this wait is 0.
+  thread displayThread(controllerDisplayTask);
+  while (!robotReady)
+    wait(10, msec);
+
   switch (selectedAuton) {
   case 0:
     matchLeft();
@@ -447,44 +500,77 @@ static void driverWallReset() {
     Controller.rumble("--");
 }
 
-// Driver control. Button choices are placeholders - change as you like.
+// Driver control.
 //   Left stick Y  : forward / back      Right stick X : turn
-//   R1 / R2       : lift up / down      L1 / L2       : claw intake / open
-//   Up / Down     : active toggle       A             : shift gear
-//   Y             : wall reset
+//   R1 / R2       : raise / lower lift  L1 / L2       : open / spin claw
+//   A             : toggle drive gear (200 <-> 400 rpm)
+//   X             : heading lock on / off
+//   Up / Down     : active toggle       Y             : wall reset
 void usercontrol(void) {
-  int loopCount = 0;
+  // Heading lock state.
+  double targetHeading = imu.rotation(rotationUnits::deg);
+  int settleMs = 0;     // time left before the lock re-engages
+  bool lockOn = true;   // toggled with X
+  bool xWasPressed = false;
+
   while (true) {
     // Arcade drive.
-    arcadeVolts(stickVolts(Controller.Axis3.position()),
-                stickVolts(Controller.Axis1.position()));
+    double forward = stickVolts(Controller.Axis3.position());
+    double turn = stickVolts(Controller.Axis1.position());
 
-    // Mechanisms: hold a button to move, release to hold position.
-    spinMechanism(lift, buttonVolts(Controller.ButtonR1.pressing(),
-                                    Controller.ButtonR2.pressing(),
-                                    LIFT_VOLTS));
-    // Claw: not spinMechanism, because the claw must COAST when released so
-    // its bands can close it (holding would keep the jaws open).
-    double clawVolts = buttonVolts(Controller.ButtonL1.pressing(),
-                                   Controller.ButtonL2.pressing(), CLAW_VOLTS);
-    if (clawVolts == 0.0)
-      claw.stop(brakeType::coast);
-    else
-      claw.spin(directionType::fwd, clawVolts, voltageUnits::volt);
-    spinMechanism(activeToggle, buttonVolts(Controller.ButtonUp.pressing(),
-                                            Controller.ButtonDown.pressing(),
-                                            TOGGLE_VOLTS));
+    // X toggles the heading lock (on the press, not while held).
+    bool xPressed = Controller.ButtonX.pressing();
+    if (xPressed && !xWasPressed)
+      lockOn = !lockOn;
+    xWasPressed = xPressed;
 
-    // Show the pose on the controller about 5 times a second (the
-    // controller screen is slow, so don't update it every loop).
-    if (++loopCount % 20 == 0) {
-      Pose pose = getPose();
-      Controller.Screen.setCursor(1, 1);
-      Controller.Screen.print("%5.1f %5.1f %5.1f %s ", pose.x, pose.y,
-                              pose.theta, getGear() == Gear::HIGH ? "H" : "L");
+    // Heading lock: while the driver isn't turning, hold the heading they
+    // left off at. After a turn, wait a moment for the robot to stop
+    // rotating, then lock onto wherever it ended up.
+    double heading = imu.rotation(rotationUnits::deg);
+    if (turn != 0.0)
+      settleMs = HEADING_LOCK_SETTLE_MS;
+    if (!lockOn || !imu.installed()) {
+      // Lock off or IMU unplugged: plain arcade, re-lock from scratch later.
+      settleMs = HEADING_LOCK_SETTLE_MS;
+    } else if (settleMs > 0) {
+      settleMs -= LOOP_MS;
+      targetHeading = heading;
+    } else {
+      double error = targetHeading - heading;
+      if (std::fabs(error) > HEADING_LOCK_DEADBAND)
+        turn = HEADING_LOCK_KP * error;
     }
+    arcadeVolts(forward, turn);
 
-    wait(LOOP_MS, msec);
+    // Lift: R1 up, R2 down, always full power (LIFT_VOLTS). With no button
+    // it holds (coast would let it fall back). spinLift is the hard stop:
+    // R2 does nothing once the lift is back down at 0 deg.
+    spinLift(buttonVolts(Controller.ButtonR1.pressing(),
+                         Controller.ButtonR2.pressing(), LIFT_VOLTS));
+
+    // Claw: L2 spins it in (wheels pull the object in), L1 spins it out
+    // (ratchet locks the wheels, so the jaws open). Not spinMechanism,
+    // because the claw must COAST when released so its bands can close it
+    // (holding would keep the jaws open).
+    if (Controller.ButtonL1.pressing()) {
+      claw.spin(directionType::rev, CLAW_RELEASE_VOLTS, voltageUnits::volt);
+      claw.setStopping(hold);
+    }
+    else if (Controller.ButtonL2.pressing()){
+      claw.spin(directionType::fwd, CLAW_GRAB_VOLTS, voltageUnits::volt);
+      claw.setStopping(coast);
+    }
+    else
+      claw.stop(); // let the bands close it
+    // spinMechanism(activeToggle, buttonVolts(Controller.ButtonUp.pressing(),
+    //                                         Controller.ButtonDown.pressing(),
+    //                                         TOGGLE_VOLTS));
+
+    // (The pose is shown on the controller by controllerDisplayTask, which
+    // runs the whole time - see pre_auton.)
+
+    wait(10, msec);
   }
 }
 

@@ -31,41 +31,51 @@ controller Controller(primary);
 
 // Drive: 55W total = 4x 11W + 2x 5.5W (3 motors per side). 5.5W motors use
 // the normal `motor` class; their gear setting is ignored (always 200 rpm).
-static motor leftFront(PORT1, ratio18_1, true);
-static motor leftMiddle(PORT2, ratio18_1, false); // 5.5W
-static motor leftBack(PORT3, ratio18_1, true);
-static motor rightFront(PORT4, ratio18_1, true);
-static motor rightMiddle(PORT5, ratio18_1, false); // 5.5W
-static motor rightBack(PORT6, ratio18_1, false);
+// The right side is the mirror image of the left, so every reverse flag on
+// the right is the OPPOSITE of the same motor on the left. If a whole side
+// drives backward, flip all three on that side together.
+static motor leftFront(PORT11, ratio18_1, true);
+static motor leftMiddle(PORT12, ratio18_1, true); // 5.5W
+static motor leftBack(PORT13, ratio18_1, false);
+static motor rightFront(PORT18, ratio18_1, false);
+static motor rightMiddle(PORT19, ratio18_1, false); // 5.5W
+static motor rightBack(PORT20, ratio18_1, true);
 motor_group leftDrive(leftFront, leftMiddle, leftBack);
 motor_group rightDrive(rightFront, rightMiddle, rightBack);
 
-// Lift: 16.5W = 11W + 5.5W on a continuous cascade.
-static motor liftMain(PORT7, ratio18_1, false);  // 11W
-static motor liftHelper(PORT8, ratio18_1, true); // 5.5W
+// Lift: 16.5W = 11W + 5.5W on a continuous cascade. Both motors drive the
+// same cascade, so they MUST turn it the same way: if the lift jerks and
+// barely moves, they're fighting - flip ONE of these flags. If the whole
+// lift goes the wrong way, flip BOTH.
+// NEVER put another motor object on port 1 or port 10: the reverse flag is
+// stored in the motor itself, so the LAST object created on a port sets its
+// direction and silently overrides these flags.
+static motor liftMain(PORT1, ratio18_1, true);   // 11W
+static motor liftHelper(PORT10, ratio18_1, false); // 5.5W
 motor_group lift(liftMain, liftHelper);
 
 // Claw: 11W.
-static motor clawMotor(PORT9, ratio18_1, false);
+static motor clawMotor(PORT16, ratio18_1, false);
 motor_group claw(clawMotor);
 
-// Active toggle: 5.5W.
-static motor toggleMotor(PORT10, ratio18_1, false);
+// Active toggle: 5.5W. NOT port 10 - that's the lift's 5.5W motor. Port 8 is
+// a guess (it's unused): set this to the toggle motor's real port.
+static motor toggleMotor(PORT8, ratio18_1, false);
 motor_group activeToggle(toggleMotor);
 
 // Transmission shifter: one piston. Retracted = high gear (400 rpm),
 // extended = low gear (200 rpm).
 digital_out transmissionPiston(Brain.ThreeWirePort.A);
 
-inertial imu(PORT11);
+inertial imu(PORT14);
 
 // Distance sensors: one on each side, two on the back, two on the front.
-distance leftDistSensor(PORT12);
-distance rightDistSensor(PORT13);
-distance backLeftDistSensor(PORT14);
-distance backRightDistSensor(PORT15);
-distance frontLeftDistSensor(PORT16);
-distance frontRightDistSensor(PORT17);
+distance leftDistSensor(PORT3);
+distance rightDistSensor(PORT5);
+distance backLeftDistSensor(PORT2);
+distance backRightDistSensor(PORT4);
+distance frontLeftDistSensor(PORT6);
+distance frontRightDistSensor(PORT9);
 
 // Where the sensors sit, in inches from the tracking center. Measure these.
 float lateralSensorOffset = 6.0; // side sensors: left/right of center
@@ -234,12 +244,13 @@ void stopDrive() {
 /*                      6. MECHANISMS (lift / claw / toggle)                  */
 /*============================================================================*/
 
-// Spin a mechanism at a voltage. 0 volts = stop and HOLD position.
+// Spin a mechanism at a voltage. 0 volts = stop and HOLD position. Clamped
+// to +/-MAX_VOLTS so asking for more than the motor has can't happen.
 void spinMechanism(motor_group &mech, double volts) {
   if (volts == 0.0)
     mech.stop(brakeType::hold);
   else
-    mech.spin(directionType::fwd, volts, voltageUnits::volt);
+    mech.spin(directionType::fwd, clamp(volts, MAX_VOLTS), voltageUnits::volt);
 }
 
 // Turns a pair of buttons into a voltage: +volts, -volts, or 0.
@@ -249,6 +260,37 @@ double buttonVolts(bool forward, bool reverse, double volts) {
   if (reverse)
     return -volts;
   return 0.0;
+}
+
+// Lift hard stop. The lift's encoder (the first motor in the group, port 1)
+// is set to 0 deg when the program starts, with the lift all the way down
+// (see pre_auton), and the lift is never driven below LIFT_BOTTOM_DEG. Every
+// lift command goes through spinLift / runLiftFor, so the stop works in
+// driver control AND auton.
+//
+// Positive volts = up (R1). This relies on the lift motors' reverse flags
+// being right: if R1 LOWERS the lift, flip both flags, or this stop will
+// block raising instead of lowering.
+//
+// Spin the lift at a voltage. 0 volts - or trying to lower it while it's at
+// or below the bottom - holds it in place instead.
+void spinLift(double volts) {
+  bool atBottom = lift.position(rotationUnits::deg) <= LIFT_BOTTOM_DEG;
+  if (volts == 0.0 || (volts < 0.0 && atBottom))
+    lift.stop(brakeType::hold);
+  else
+    lift.spin(directionType::fwd, clamp(volts, MAX_VOLTS), voltageUnits::volt);
+}
+
+// Run the lift at a voltage for `ms`, then hold. The hard stop is checked
+// every loop, so lowering stops the moment the lift reaches the bottom.
+void runLiftFor(double volts, int ms) {
+  timer elapsed;
+  while (elapsed.time(timeUnits::msec) < ms) {
+    spinLift(volts);
+    this_thread::sleep_for(LOOP_MS);
+  }
+  spinLift(0.0);
 }
 
 /*============================================================================*/
