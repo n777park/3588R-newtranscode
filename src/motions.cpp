@@ -415,8 +415,13 @@ void moveToPoint(double x, double y, int timeoutMs, bool reverse,
     // This is negative if the point is behind us, so the robot will back
     // up (in reverse, or after overshooting) without any special cases. It
     // also slows the robot down automatically while it is still turning.
+    // Reverse drives are handled explicitly here so a backward move is not
+    // treated like a forward move just because the robot has re-aimed at the
+    // target.
     double theta = toRadians(pose.theta);
     double forwardError = dx * std::sin(theta) + dy * std::cos(theta);
+    if (reverse)
+      forwardError *= -1.0;
 
     // Once steering is locked, the robot can only fix error along the way
     // it is facing, so judge "done" by forward error. Otherwise a small
