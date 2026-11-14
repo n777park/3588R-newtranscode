@@ -104,12 +104,11 @@ static void matchLeft() {
   // return;
   
   spinToHeight(10.0, 600); // raise the lift for 0.5 s
-  setPose({0,-60 , 90});
-  resetHeadingOffBackWall(); // reset the inertial sensor to 0 deg (facing north)
+  // reset the inertial sensor to 0 deg (facing north)
   thread spinToggle = thread([]() {
     clawIntake(); // start the claw spinning in
     spinMechanism(activeToggle, TOGGLE_VOLTS); // start the toggle spinning in
-    vex::wait(600, msec); // let it run for 3.0 s, then stop
+    vex::wait(500, msec); // let it run for 3.0 s, then stop
     spinMechanism(activeToggle, 0.0);
     clawStop(); // stop the claw after 0.5 s
   });
@@ -117,12 +116,19 @@ static void matchLeft() {
   // turnToPoint(-48.0, -24.0);
   // vex::wait(1000000,msec)
   vex::wait(400,msec);
-  moveToPoint(-48.0, 0.0, 800);
+  deaddriveforward(5.0, 600);
+  setPose({
+           -FIELD_HALF + backLeftDistSensor.objectDistance(inches) + 9.0,
+           FIELD_HALF - leftDistSensor.objectDistance(inches) - 4.0,
+           90.0});
+  // return;
+  resetHeadingOffBackWall(); 
+  moveToPoint(-48.0, 16.0, 800);
   turnToHeading(90.0, TurnDirection::SHORTEST, 800);
   setPose({
            -FIELD_HALF + backLeftDistSensor.objectDistance(inches) + 9.0,
            FIELD_HALF - leftDistSensor.objectDistance(inches) - 4.0,
-           current.theta});
+           getPose().theta}); // keep the heading it has now
   // return;
   turnToPoint(-48.0, -24.0, TurnDirection::SHORTEST,false, 800);
     clawStop(); // stop the claw after 0.5 s

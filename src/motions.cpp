@@ -240,6 +240,16 @@ void stopDrive() {
   rightDrive.stop(brakeType::brake);
 }
 
+// Dead-reckoning drive: both sides at `volts` (negative = backward) for `ms`,
+// then brake. No PID and no target point - just "push for this long", e.g.
+// to square up against a wall or nudge into a goal. Odometry keeps tracking
+// the whole time.
+void deaddriveforward(double volts, int ms) {
+  arcadeVolts(clamp(volts, MAX_VOLTS), 0.0);
+  this_thread::sleep_for(ms);
+  stopDrive();
+}
+
 /*============================================================================*/
 /*                      6. MECHANISMS (lift / claw / toggle)                  */
 /*============================================================================*/

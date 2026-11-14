@@ -342,6 +342,8 @@ double inchesPerMotorRev(); // depends on the current gear
 // ---- Drive output ----
 void arcadeVolts(double forward, double turn); // used by driver AND autons
 void stopDrive();
+// Drive straight at `volts` (negative = backward) for `ms`, then brake.
+void deaddriveforward(double volts, int ms);
 
 // ---- Mechanisms (lift, claw, active toggle) ----
 void spinMechanism(vex::motor_group &mech, double volts); // 0 = hold
