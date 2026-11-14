@@ -234,6 +234,15 @@ constexpr int LIFT_BOTTOM_EXTRA_MS = 150;
 constexpr double CLAW_GRAB_VOLTS = 8.0;     // spin in (grab)
 constexpr double CLAW_RELEASE_VOLTS = 12.0; // spin out (open, let go)
 constexpr int CLAW_OPEN_MS = 250;           // time for the jaws to open
+
+// Auto clamp (autonomous only): after clawOpen(), once clawDistSensor reads
+// CLAW_CLAMP_IN or closer for CLAW_CLAMP_CONFIRM_MS in a row, the claw closes
+// on the pin by itself (clawStop() then clawIntake()). See autoClampTask.
+// PLACEHOLDER - hold a pin where the open claw can grab it and read
+// clawDistSensor's distance on the brain's Devices screen; set this a little
+// above that.
+constexpr double CLAW_CLAMP_IN = 1.5;
+constexpr int CLAW_CLAMP_CONFIRM_MS = 30; // ignores one-off noisy readings
 constexpr double CLAW_SPIN_OUT_IN = 4.0; // at the loader: inches backed out
                                          // before the claw stops spinning
 
@@ -304,7 +313,7 @@ extern vex::distance rightDistSensor;
 extern vex::distance backLeftDistSensor;
 extern vex::distance backRightDistSensor;
 extern vex::distance frontLeftDistSensor;
-extern vex::distance frontRightDistSensor;
+extern vex::distance clawDistSensor; // looks into the claw (auto clamp)
 
 // Where the sensors sit on the robot, in inches from the tracking center
 // (set in motions.cpp, used by the wall reset).
@@ -357,7 +366,7 @@ void turnToPoint(double x, double y,
                  bool reverse = false, int timeoutMs = 2000,
                  double maxVolts = MAX_VOLTS);
 void moveToPoint(double x, double y, int timeoutMs = 1000,
-                 bool reverse = false, double maxVolts = MAX_VOLTS);
+                 bool reverse = false, double maxVolts = 10);
 
 // ---- Wall reset ----
 bool resetHeadingOffBackWall(); // true if both back sensors saw a wall

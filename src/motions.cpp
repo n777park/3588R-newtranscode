@@ -75,7 +75,7 @@ distance rightDistSensor(PORT5);
 distance backLeftDistSensor(PORT2);
 distance backRightDistSensor(PORT4);
 distance frontLeftDistSensor(PORT6);
-distance frontRightDistSensor(PORT9);
+distance clawDistSensor(PORT9);
 
 // Where the sensors sit, in inches from the tracking center. Measure these.
 float lateralSensorOffset = 6.0; // side sensors: left/right of center

@@ -27,13 +27,66 @@ competition Competition;
 //              COAST when stopped - holding would keep the jaws open.
 // (Up here, above the autons, because C++ needs a function defined before
 // the first code that calls it.)
+// True from clawOpen() until the auto clamp grabs something - or until the
+// auton calls clawIntake() / clawStop() itself, which cancels it.
+static volatile bool clampArmed = false;
+
 void clawIntake() {
+  clampArmed = false;
   claw.spin(directionType::fwd, CLAW_GRAB_VOLTS, voltageUnits::volt);
 }
 void clawOpen() {
+  clampArmed = true; // the auto clamp now waits for a pin (see below)
   claw.spin(directionType::rev, CLAW_RELEASE_VOLTS, voltageUnits::volt);
 }
-void clawStop() { claw.stop(brakeType::coast); }
+void clawStop() {
+  clampArmed = false;
+  claw.stop(brakeType::coast);
+}
+
+// The auto clamp is switched off until the brain's clock (ms) reaches this.
+static volatile uint32_t autoClampOffUntilMs = 0;
+
+// Turn the auto clamp OFF for `ms` milliseconds. USE IT WHEN RELEASING A
+// PIN: releasing calls clawOpen(), which arms the auto clamp, and the pin is
+// still right in front of the sensor - so without this it would grab the
+// pin straight back. It turns itself back on afterwards.
+//   disableAutoClamp(2000);  // off for 2 s
+//   clawOpen();              // let the pin go
+void disableAutoClamp(int ms) { autoClampOffUntilMs = timer::system() + ms; }
+
+// Turn the auto clamp back on right away (ends a disableAutoClamp early).
+void enableAutoClamp() { autoClampOffUntilMs = 0; }
+
+// Auto clamp, AUTONOMOUS ONLY (background task started in pre_auton):
+//   1. clawOpen() arms it - the jaws open and it starts watching.
+//   2. Once clawDistSensor has seen something within CLAW_CLAMP_IN for
+//      CLAW_CLAMP_CONFIRM_MS (a pin is in reach), it calls clawStop() then
+//      clawIntake() to close on it. The claw keeps spinning in until the
+//      auton calls clawStop().
+//   3. Then it's disarmed until the next clawOpen().
+// Calling clawIntake() or clawStop() yourself while it's armed cancels it.
+// Does nothing while disableAutoClamp() has it switched off.
+static int autoClampTask() {
+  int closeMs = 0; // how long the pin has been close enough
+  while (true) {
+    bool close = clawDistSensor.isObjectDetected() &&
+                 clawDistSensor.objectDistance(inches) <= CLAW_CLAMP_IN;
+    bool enabled = timer::system() >= autoClampOffUntilMs;
+    if (Competition.isAutonomous() && enabled && clampArmed && close) {
+      closeMs += 10;
+      if (closeMs >= CLAW_CLAMP_CONFIRM_MS) {
+        clawStop();   // stop opening: the bands start closing the jaws
+        clawIntake(); // spin in: the wheels pull the pin in and grip it
+        closeMs = 0;
+      }
+    } else {
+      closeMs = 0;
+    }
+    vex::wait(10, msec);
+  }
+  return 0;
+}
 
 /*============================================================================*/
 /*                              AUTON ROUTINES                                */
@@ -46,6 +99,9 @@ static void matchLeft() {
   // sensor sees the west wall (6" = sensor to robot center) and the back
   // sensor sees the south wall (9" = half the robot length).
   vex::wait(1000,msec);
+  // clawOpen(); // open the claw so it can grab a pin
+  
+  // return;
   setPose({
            -FIELD_HALF + backLeftDistSensor.objectDistance(inches) + 9.0,
            FIELD_HALF - leftDistSensor.objectDistance(inches) - 4.0,
@@ -63,13 +119,14 @@ static void matchLeft() {
   // turnToPoint(-48.0, -24.0);
   // vex::wait(1000000,msec)
   vex::wait(400,msec);
-  moveToPoint(-48.0, 0.0);
-  turnToPoint(-48.0, -24.0);
+  moveToPoint(-48.0, 0.0, 800);
+  turnToPoint(-48.0, -24.0, TurnDirection::SHORTEST,false, 800);
     clawStop(); // stop the claw after 0.5 s
 
-  moveToPoint(-46.0, -24.0);
-  spinToHeight(6.0, 400); 
+  moveToPoint(-47.0, -17.0, 900);
+  spinToHeight(6.0, 400);
 
+  disableAutoClamp(1000); // releasing - don't let the auto clamp re-grab it
   clawOpen();
   // Claw Picks up
   moveToPoint(-48.0, 0.0, 800, true);
@@ -81,29 +138,41 @@ static void matchLeft() {
              current.theta});
   }
   spinToHeight(0.0, 600); // lower the lift for 0
-  turnToPoint(-24.0, -24.0);
+  turnToPoint(-24.0, -24.0, TurnDirection::SHORTEST, false, 800);
   clawOpen();
-  moveToPoint(-24.0, -22.0);
+  moveToPoint(-23.0, -24.0, 1300, false, 5.0); // move to the pin
   clawStop();
   clawIntake();
   spinToHeight(16.0, 1200); // raise the lift for 0.5 s
   clawStop();
   // Claw Places down
-  turnToPoint(-48.0, -24.0);
-  moveToPoint(-48.0, -22.0);
+  turnToPoint(-48.0, -24.0, TurnDirection::SHORTEST, false, 800);
+  moveToPoint(-48.0, -24.0,900);
+  spinToHeight(13.0, 300); // lower the lift for 0.5 s
+  disableAutoClamp(1000); // releasing - don't let the auto clamp re-grab it
   clawOpen();
   //Claw Picks up
   // turnToPoint(-24.0, -24.0);
+  thread closeclaw = thread([]() {
+    vex::wait(500, msec);
+    clawStop();
+
+  });
   moveToPoint(-24.0, -24.0, 800, true);
 
+  spinToHeight(0.0, 1200); // lower the lift for 0.5 s
   turnToPoint(-48.0, -48.0);
+  clawOpen();
   //Claw Places down
   moveToPoint(-48.0, -48.0);
   clawStop();
+
   clawIntake();
   spinToHeight(18.0, 1600); // raise the lift for
+  clawStop();
   turnToPoint(-24.0, -48.0);
   moveToPoint(-24.0, -48.0);
+  disableAutoClamp(1500); // releasing - don't let the auto clamp re-grab it
   clawOpen();
 }
 //bottom
@@ -215,10 +284,12 @@ static void placeOnGoal(double cx, double cy, double gx, double gy,
   liftTo(LIFT_PLACE_BASE_MS + level * LIFT_MS_PER_LEVEL);
   turnToPoint(gx, gy);
   driveTo(cx, cy);
+  disableAutoClamp(3000); // releasing: don't let the auto clamp re-grab it
   clawOpen();
   vex::wait(CLAW_OPEN_MS, msec);
   backUp(8.0); // still open
   clawStop();
+  enableAutoClamp(); // released and backed away - back on
   liftTo(LIFT_CARRY_MS);
 }
 
@@ -562,11 +633,55 @@ static void liftTest() {
   //                    LIFT_GAINS.kI, LIFT_GAINS.kD);
 }
 
-// NOT a do-nothing anymore: runs a test. It's also the default auton - pick
-// a real auton on the brain before a match.
+/*----------------------------------------------------------------------------*/
+/*                    AUTO CLAMP TEST (runs from doNothing)                   */
+/*                                                                            */
+/*  Opens the claw (which arms the auto clamp), then for 12 s shows on the    */
+/*  BRAIN screen what the claw sensor sees and whether the clamp fired.       */
+/*  Hold a pin in front of the claw and watch:                                */
+/*    - "sensor" shows the distance it reads (or NOTHING if it sees nothing)  */
+/*    - "CLAMPED" appears when the auto clamp closes the claw                 */
+/*  If it reads a distance but never clamps, set CLAW_CLAMP_IN (TOC.hpp) a     */
+/*  little above that distance.                                               */
+/*----------------------------------------------------------------------------*/
+
+static void clawTest() {
+  Brain.Screen.clearScreen();
+  Brain.Screen.setCursor(1, 1);
+  Brain.Screen.print("AUTO CLAMP TEST - hold a pin in front");
+  clawOpen(); // arms the auto clamp
+  bool clamped = false;
+
+  timer t;
+  while (t.time(msec) < 12000) {
+    Brain.Screen.setCursor(3, 1);
+    if (clawDistSensor.isObjectDetected())
+      Brain.Screen.print("sensor: %5.2f in          ",
+                         clawDistSensor.objectDistance(inches));
+    else
+      Brain.Screen.print("sensor: NOTHING           ");
+    Brain.Screen.setCursor(4, 1);
+    Brain.Screen.print("clamps at <= %.2f in", CLAW_CLAMP_IN);
+    Brain.Screen.setCursor(5, 1);
+    Brain.Screen.print("armed: %s   ", clampArmed ? "YES" : "no");
+
+    // The clamp disarms itself when it fires - that's how we know.
+    if (!clamped && !clampArmed) {
+      clamped = true;
+      Brain.Screen.setCursor(7, 1);
+      Brain.Screen.print("CLAMPED at %.1f s", t.time(msec) / 1000.0);
+    }
+    vex::wait(50, msec);
+  }
+  clawStop();
+}
+
+// NOT a do-nothing anymore: runs a test. Pick a real auton on the brain
+// before a match.
 static void doNothing() {
-  liftTest();
-  // driveTurnTest(); // the turn/drive PID test - swap with the line above
+  clawTest();
+  // liftTest();       // the lift PID test
+  // driveTurnTest();  // the turn/drive PID test
 }
 
 // Test / tuning routine: drive a square-ish path and come back.
@@ -599,7 +714,14 @@ static const int SCREEN_WIDTH = 480;  // V5 brain screen size in pixels
 static const int SCREEN_HEIGHT = 272;
 static const int ROW_HEIGHT = SCREEN_HEIGHT / AUTON_COUNT;
 
-// Index into AUTON_NAMES. Starts on "Do Nothing" so a forgotten selection is safe.
+// Index into AUTON_NAMES: the DEFAULT auton.
+// A TIMED RUN ALWAYS RUNS THIS ONE: it restarts the program and starts
+// autonomous as soon as the IMU finishes calibrating - the same moment the
+// selector appears - so there's no time to tap a different one. To test an
+// auton with a timed run, set its number here. (In a real match there's time
+// to tap one on the brain before the match starts.)
+//   0 = Match Left, 1 = Match Bottom, 2 = Skills, 3 = Do Nothing (tests),
+//   4 = Test
 static int selectedAuton = 0;
 
 // Draw one full-width button per auton. The selected one is green.
@@ -685,6 +807,8 @@ void pre_auton(void) {
   // Start the controller display first, so it's already running if a timed
   // run starts autonomous while the IMU is still calibrating.
   thread displayThread(controllerDisplayTask);
+  // Auto clamp: only does anything during autonomous (see autoClampTask).
+  thread clampThread(autoClampTask);
 
   setGear(Gear::HIGH); // piston retracted = 400 rpm
 
@@ -714,6 +838,12 @@ void autonomous(void) {
   thread displayThread(controllerDisplayTask);
   while (!robotReady)
     vex::wait(10, msec);
+
+  // Show which auton is running, so it's obvious if the wrong one started.
+  Brain.Screen.clearScreen();
+  Brain.Screen.setCursor(1, 1);
+  if (selectedAuton >= 0 && selectedAuton < AUTON_COUNT)
+    Brain.Screen.print("AUTON: %s", AUTON_NAMES[selectedAuton]);
 
   switch (selectedAuton) {
   case 0:
