@@ -356,7 +356,7 @@ void turnToPoint(double x, double y,
                  TurnDirection dir = TurnDirection::SHORTEST,
                  bool reverse = false, int timeoutMs = 2000,
                  double maxVolts = MAX_VOLTS);
-void moveToPoint(double x, double y, int timeoutMs = 4000,
+void moveToPoint(double x, double y, int timeoutMs = 1000,
                  bool reverse = false, double maxVolts = MAX_VOLTS);
 
 // ---- Wall reset ----

@@ -18,6 +18,23 @@ using namespace vex;
 // A global instance of competition
 competition Competition;
 
+// The claw is a ratchet claw on one 11W motor, banded shut:
+//  - Spin IN:  the wheels spin and pull the object in; the bands keep the
+//              jaws squeezed on it.
+//  - Spin OUT: the ratchet locks the wheels, so the motor opens the jaws
+//              instead and the object is let go.
+//  - Stopped:  the bands close it by themselves (passive grip). It must
+//              COAST when stopped - holding would keep the jaws open.
+// (Up here, above the autons, because C++ needs a function defined before
+// the first code that calls it.)
+void clawIntake() {
+  claw.spin(directionType::fwd, CLAW_GRAB_VOLTS, voltageUnits::volt);
+}
+void clawOpen() {
+  claw.spin(directionType::rev, CLAW_RELEASE_VOLTS, voltageUnits::volt);
+}
+void clawStop() { claw.stop(brakeType::coast); }
+
 /*============================================================================*/
 /*                              AUTON ROUTINES                                */
 /*    Placeholders that show how to use the motions - replace with real ones. */
@@ -28,38 +45,82 @@ static void matchLeft() {
   // Where the robot starts: set this FIRST. Facing north, so the left
   // sensor sees the west wall (6" = sensor to robot center) and the back
   // sensor sees the south wall (9" = half the robot length).
-  setPose({-FIELD_HALF + leftDistSensor.objectDistance(inches) + 6.0,
+  vex::wait(1000,msec);
+  setPose({
            -FIELD_HALF + backLeftDistSensor.objectDistance(inches) + 9.0,
-           0.0});
-  turnToPoint(-48.0, -24.0);
-  moveToPoint(-48.0, -24.0);
-  runLiftFor(LIFT_VOLTS, 500); // raise the lift for 0.5 s
-  turnToPoint(-24.0, -24.0);
-  moveToPoint(-24.0, -24.0);
-  // Claw Picks up
-  turnToPoint(-48.0, -24.0);
-  moveToPoint(-48.0, -24.0);
-  // Claw Places down
-  turnToPoint(-48.0, -48.0);
-  moveToPoint(-48.0, -48.0);
-  //Claw Picks up
-  turnToPoint(-48.0, -24.0);
-  moveToPoint(-48.0, -24.0);
-  //Claw Places down
-}
+           FIELD_HALF - leftDistSensor.objectDistance(inches) - 4.0,
+           90.0});
+  spinToHeight(10.0, 600); // raise the lift for 0.5 s
 
-// Match auton starting on the right side (mirror of the left side).
-static void matchRight() {
+  resetHeadingOffBackWall(); // reset the inertial sensor to 0 deg (facing north)
+  thread spinToggle = thread([]() {
+    clawIntake(); // start the claw spinning in
+    spinMechanism(activeToggle, TOGGLE_VOLTS); // start the toggle spinning in
+    vex::wait(600, msec); // let it run for 3.0 s, then stop
+    spinMechanism(activeToggle, 0.0);
+  });
+  // vex::wait(100000,msec);
+  // turnToPoint(-48.0, -24.0);
+  // vex::wait(1000000,msec)
+  vex::wait(400,msec);
+  moveToPoint(-48.0, 0.0);
+  turnToPoint(-48.0, -24.0);
+    clawStop(); // stop the claw after 0.5 s
+
+  moveToPoint(-46.0, -24.0);
+  spinToHeight(6.0, 400); 
+
+  clawOpen();
+  // Claw Picks up
+  moveToPoint(-48.0, 0.0, 800, true);
+  clawStop();
+  { // reset x from the right distance sensor; keep the current y and heading
+    Pose current = getPose();
+    setPose({-FIELD_HALF + rightDistSensor.objectDistance(inches) + 4.0,
+             current.y,
+             current.theta});
+  }
+  spinToHeight(0.0, 600); // lower the lift for 0
+  turnToPoint(-24.0, -24.0);
+  clawOpen();
+  moveToPoint(-24.0, -22.0);
+  clawStop();
+  clawIntake();
+  spinToHeight(16.0, 1200); // raise the lift for 0.5 s
+  clawStop();
+  // Claw Places down
+  turnToPoint(-48.0, -24.0);
+  moveToPoint(-48.0, -22.0);
+  clawOpen();
+  //Claw Picks up
+  // turnToPoint(-24.0, -24.0);
+  moveToPoint(-24.0, -24.0, 800, true);
+
+  turnToPoint(-48.0, -48.0);
+  //Claw Places down
+  moveToPoint(-48.0, -48.0);
+  clawStop();
+  clawIntake();
+  spinToHeight(18.0, 1600); // raise the lift for
+  turnToPoint(-24.0, -48.0);
+  moveToPoint(-24.0, -48.0);
+  clawOpen();
+}
+//bottom
+static void matchBottom() {
     // Facing north: right sensor sees the east wall, back sees the south wall.
-  setPose({FIELD_HALF - rightDistSensor.objectDistance(inches) - 6.0,
+  setPose({FIELD_HALF - rightDistSensor.objectDistance(inches) - 4.0,
            -FIELD_HALF + backRightDistSensor.objectDistance(inches) + 9.0,
            0.0});
-  spinMechanism(activeToggle, TOGGLE_VOLTS); // start the toggle spinning in
-  wait(300, msec); // let it run for 3.0 s, then stop
-  spinMechanism(activeToggle, 0.0);
-  thread raiselift = thread([]() {
-    runLiftFor(LIFT_VOLTS, 500); // raise the lift for 0.5 s
+  thread spinToggle = thread([]() {
+    spinMechanism(activeToggle, TOGGLE_VOLTS); // start the toggle spinning in
+    vex::wait(300, msec); // let it run for 3.0 s, then stop
+    spinMechanism(activeToggle, 0.0);
   });
+  
+  // thread raiselift = thread([]() {
+  //   runLiftFor(LIFT_VOLTS, 500); // raise the lift for 0.5 s
+  // });
   moveToPoint(-10, -48.0, 500);
   moveToPoint(-24, -48.0, 600);
   runLiftFor(-LIFT_VOLTS, 300); // lower the lift for 0.3 s
@@ -72,7 +133,7 @@ static void matchRight() {
   moveToPoint(-10,-48.0, 800);
   turnToPoint(-24,-48);
   thread lowerlift = thread([]() {
-    wait(300, msec);
+    vex::wait(300, msec);
     runLiftFor(-LIFT_VOLTS, 1000); // lower the lift for 1 s
   });
   moveToPoint(-24,-48.0, 800);
@@ -95,21 +156,6 @@ static void backUp(double inches) {
   moveToPoint(pose.x - inches * std::sin(h), pose.y - inches * std::cos(h),
               1500, true);
 }
-
-// The claw is a ratchet claw on one 11W motor, banded shut:
-//  - Spin IN:  the wheels spin and pull the object in; the bands keep the
-//              jaws squeezed on it.
-//  - Spin OUT: the ratchet locks the wheels, so the motor opens the jaws
-//              instead and the object is let go.
-//  - Stopped:  the bands close it by themselves (passive grip). It must
-//              COAST when stopped - holding would keep the jaws open.
-static void clawIntake() {
-  claw.spin(directionType::fwd, CLAW_GRAB_VOLTS, voltageUnits::volt);
-}
-static void clawOpen() {
-  claw.spin(directionType::rev, CLAW_RELEASE_VOLTS, voltageUnits::volt);
-}
-static void clawStop() { claw.stop(brakeType::coast); }
 
 // Time-based lift. liftHeightMs is where the lift is, in "ms of lifting from
 // the very bottom" (see LIFT_* in TOC.hpp). Skills starts with the lift all
@@ -170,7 +216,7 @@ static void placeOnGoal(double cx, double cy, double gx, double gy,
   turnToPoint(gx, gy);
   driveTo(cx, cy);
   clawOpen();
-  wait(CLAW_OPEN_MS, msec);
+  vex::wait(CLAW_OPEN_MS, msec);
   backUp(8.0); // still open
   clawStop();
   liftTo(LIFT_CARRY_MS);
@@ -196,7 +242,7 @@ static void getMatchLoad() {
   clawIntake();
   moveToPoint(-55.96, -58.86); // claw on the loader
   turnToHeading(270.0);        // square up so the claw is on the loader
-  wait(LOAD_WAIT_MS, msec);
+  vex::wait(LOAD_WAIT_MS, msec);
   backUp(CLAW_SPIN_OUT_IN); // still spinning
   clawStop();
   moveToPoint(-44.20, -54.20, 4000, true); // back out
@@ -206,7 +252,7 @@ static void getMatchLoad() {
 // back off (a Toggle touching a Robot doesn't count as set - SC4).
 static void spinToggle(float timeoutMs=500) {
   activeToggle.spin(directionType::fwd, TOGGLE_FLIP_VOLTS, voltageUnits::volt);
-  wait(timeoutMs, msec);
+  vex::wait(timeoutMs, msec);
   activeToggle.stop(brakeType::coast);
   backUp(8.0);
 }
@@ -361,7 +407,7 @@ static int pidSamplerTask() {
       if (past > pidOvershoot)
         pidOvershoot = past;
     }
-    wait(10, msec);
+    vex::wait(10, msec);
   }
   return 0;
 }
@@ -398,7 +444,7 @@ static void pidTestTurn(double heading, TurnDirection dir) {
   timer t;
   turnToHeading(heading, dir, 3000); // 3 s: room for a 270 deg long turn
   double ms = t.time(msec);
-  wait(PID_TEST_PAUSE_MS, msec); // still sampling: coasting past counts too
+  vex::wait(PID_TEST_PAUSE_MS, msec); // still sampling: coasting past counts too
   pidSampling = false;
 
   double final = pidTurnSign * wrap180(heading - getPose().theta);
@@ -423,7 +469,7 @@ static void pidTestDrive(double inches) {
   timer t;
   moveToPoint(pidTargetX, pidTargetY, 4000, inches < 0.0);
   double ms = t.time(msec);
-  wait(PID_TEST_PAUSE_MS, msec); // still sampling: coasting past counts too
+  vex::wait(PID_TEST_PAUSE_MS, msec); // still sampling: coasting past counts too
   pidSampling = false;
 
   Pose end = getPose();
@@ -436,7 +482,7 @@ static void pidTestDrive(double inches) {
 static void driveTurnTest() {
   // (No fixed wait needed: autonomous() already waits until odometry runs.)
   setPose({0.0, 0.0, 0.0}); // "north" = whichever way the robot faces now
-  wait(1000, msec); // let the odometry settle before starting
+  vex::wait(1000, msec); // let the odometry settle before starting
   Brain.Screen.clearScreen();
   Brain.Screen.setCursor(1, 1);
   Brain.Screen.print("# type    move   time  over  final");
@@ -460,7 +506,7 @@ static void driveTurnTest() {
   // // Drives (DRIVE_GAINS)
   // pidTestDrive(48.0);  // 7: 24" forward
   // turnToHeading(0.0); // face north again
-  // wait(1000, msec);
+  // vex::wait(1000, msec);
   // pidTestDrive(-48.0); // 8: 24" back
 
   // The gains this run used, so a photo of the screen says what was tested.
@@ -487,7 +533,7 @@ static void liftTestStep(double target) {
   timer t;
   spinToHeight(target);
   double ms = t.time(msec);
-  wait(PID_TEST_PAUSE_MS, msec); // watch it hold
+  vex::wait(PID_TEST_PAUSE_MS, msec); // watch it hold
   double final = liftHeightInches();
 
   pidStepNum++;
@@ -542,7 +588,7 @@ static void test() {
 // matching case in autonomous() below (same position = same number).
 static const char *AUTON_NAMES[] = {
     "Match Left",  // 0
-    "Match Right", // 1
+    "Match Bottom", // 1
     "Skills",      // 2
     "Do Nothing",  // 3
     "Test",        // 4
@@ -554,7 +600,7 @@ static const int SCREEN_HEIGHT = 272;
 static const int ROW_HEIGHT = SCREEN_HEIGHT / AUTON_COUNT;
 
 // Index into AUTON_NAMES. Starts on "Do Nothing" so a forgotten selection is safe.
-static int selectedAuton = 3;
+static int selectedAuton = 0;
 
 // Draw one full-width button per auton. The selected one is green.
 static void drawSelector() {
@@ -609,7 +655,7 @@ static int controllerDisplayTask() {
     if (!robotReady) {
       Controller.Screen.setCursor(1, 1);
       Controller.Screen.print("Calibrating IMU  ");
-      wait(100, msec);
+      vex::wait(100, msec);
       continue;
     }
     Pose pose = getPose();
@@ -623,7 +669,7 @@ static int controllerDisplayTask() {
       Controller.Screen.print("Lift:%5.1fin %5.0fd", liftHeightInches(),
                               lift.position(rotationUnits::deg));
     line = line % 3 + 1;
-    wait(100, msec);
+    vex::wait(100, msec);
   }
   return 0;
 }
@@ -646,9 +692,9 @@ void pre_auton(void) {
   // The short wait gives isCalibrating() time to turn true, so the loop
   // can't exit before calibration has actually started.
   imu.calibrate();
-  wait(100, msec);
+  vex::wait(100, msec);
   while (imu.isCalibrating())
-    wait(20, msec);
+    vex::wait(20, msec);
 
   startOdometry();
   robotReady = true; // autonomous can start now
@@ -667,14 +713,14 @@ void autonomous(void) {
   // real match the program is started before the match, so this wait is 0.
   thread displayThread(controllerDisplayTask);
   while (!robotReady)
-    wait(10, msec);
+    vex::wait(10, msec);
 
   switch (selectedAuton) {
   case 0:
     matchLeft();
     break;
   case 1:
-    matchRight();
+    matchBottom();
     break;
   case 2:
     skills();
@@ -781,7 +827,7 @@ void usercontrol(void) {
     // (The pose is shown on the controller by controllerDisplayTask, which
     // runs the whole time - see pre_auton.)
 
-    wait(10, msec);
+    vex::wait(10, msec);
   }
 }
 
@@ -800,6 +846,6 @@ int main() {
 
   // Prevent main from exiting with an infinite loop.
   while (true) {
-    wait(100, msec);
+    vex::wait(100, msec);
   }
 }

@@ -9,7 +9,7 @@
 
 #define waitUntil(condition)                                                   \
   do {                                                                         \
-    wait(5, msec);                                                             \
+    vex::wait(5, msec);                                                             \
   } while (!(condition))
 
 #define repeat(iterations)                                                     \
