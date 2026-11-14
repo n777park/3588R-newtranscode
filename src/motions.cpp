@@ -60,7 +60,7 @@ motor_group claw(clawMotor);
 
 // Active toggle: 5.5W. NOT port 10 - that's the lift's 5.5W motor. Port 8 is
 // a guess (it's unused): set this to the toggle motor's real port.
-static motor toggleMotor(PORT8, ratio18_1, false);
+static motor toggleMotor(PORT15, ratio18_1, false);
 motor_group activeToggle(toggleMotor);
 
 // Transmission shifter: one piston. Retracted = high gear (400 rpm),
@@ -293,6 +293,38 @@ void runLiftFor(double volts, int ms) {
   spinLift(0.0);
 }
 
+// Current lift height in inches above the bottom.
+double liftHeightInches() {
+  return LIFT_BOTTOM_IN + lift.position(rotationUnits::deg) / LIFT_DEG_PER_INCH;
+}
+
+// Lift PID: move the lift to `heightIn` inches (LIFT_BOTTOM_IN = all the way
+// down, LIFT_TOP_IN = all the way up), then hold it there. Targets outside
+// that range are clamped to it. Blocks until it has been within
+// LIFT_TOLERANCE_DEG for SETTLE_MS, or timeoutMs runs out. Goes through
+// spinLift, so it can never drive below the bottom. To move the lift while
+// driving, run it in a thread, e.g. thread([]() { spinToHeight(12); });
+void spinToHeight(double heightIn, int timeoutMs, double maxVolts) {
+  if (heightIn > LIFT_TOP_IN)
+    heightIn = LIFT_TOP_IN;
+  // The PID works in encoder degrees (0 = the bottom).
+  double heightDeg = (heightIn - LIFT_BOTTOM_IN) * LIFT_DEG_PER_INCH;
+  if (heightDeg < LIFT_BOTTOM_DEG)
+    heightDeg = LIFT_BOTTOM_DEG;
+  PID liftPID(LIFT_GAINS);
+  SettleTimer settle;
+  timer elapsed;
+
+  while (elapsed.time(timeUnits::msec) < timeoutMs) {
+    double error = heightDeg - lift.position(rotationUnits::deg);
+    if (settle.update(std::fabs(error) < LIFT_TOLERANCE_DEG))
+      break;
+    spinLift(clamp(liftPID.update(error), maxVolts));
+    this_thread::sleep_for(LOOP_MS);
+  }
+  spinLift(0.0); // hold at the height
+}
+
 /*============================================================================*/
 /*                               7. MOTIONS                                   */
 /*============================================================================*/
@@ -358,7 +390,7 @@ void turnToPoint(double x, double y, TurnDirection dir, bool reverse,
 void moveToPoint(double x, double y, int timeoutMs, bool reverse,
                  double maxVolts) {
   PID drivePID(DRIVE_GAINS);
-  PID turnPID(TURN_GAINS);
+  PID turnPID(STEER_GAINS); // gentle steering, not the in-place TURN_GAINS
   SettleTimer settle;
   timer elapsed;
   double targetHeading = headingTo(x, y, reverse);

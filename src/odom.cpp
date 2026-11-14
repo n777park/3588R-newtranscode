@@ -29,8 +29,14 @@ static double prevLeftRev = 0.0;
 static double prevRightRev = 0.0;
 
 // The inertial sensor starts at 0 when calibrated. This offset turns its
-// reading into a field heading: fieldHeading = imu.rotation() + imuOffset.
+// reading into a field heading: fieldHeading = imuDegrees() + imuOffset.
 static double imuOffset = 0.0;
+
+// The inertial sensor's rotation in degrees, corrected by IMU_SCALE (see
+// TOC.hpp). Everything in this file reads the sensor through this.
+static double imuDegrees() {
+  return imu.rotation(vex::rotationUnits::deg) * IMU_SCALE;
+}
 
 // The background loop that keeps the pose up to date.
 static int odometryTask() {
@@ -47,7 +53,7 @@ static int odometryTask() {
     // 2. Predict: move the estimate using the wheels.
     filter.predict(dLeft, dRight);
     // 3. Update: correct heading with the inertial sensor.
-    filter.updateHeading(imu.rotation(vex::rotationUnits::deg) + imuOffset);
+    filter.updateHeading(imuDegrees() + imuOffset);
     poseLock.unlock();
 
     vex::this_thread::sleep_for(LOOP_MS);
@@ -76,6 +82,6 @@ void setPose(const Pose &pose) {
   poseLock.lock();
   filter.reset(pose);
   // Re-line-up the inertial sensor so it agrees with the new heading.
-  imuOffset = pose.theta - imu.rotation(vex::rotationUnits::deg);
+  imuOffset = pose.theta - imuDegrees();
   poseLock.unlock();
 }

@@ -315,14 +315,212 @@ static void skills() {
   driveTo(-12.0, -12.0);
 }
 
-// Does nothing. Safe default if no auton is chosen.
-static void doNothing() {
+/*----------------------------------------------------------------------------*/
+/*                       PID TUNING TEST (runs as "Do Nothing")               */
+/*                                                                            */
+/*  6 turns (TURN_GAINS), then 2 drives (DRIVE_GAINS), with a pause after     */
+/*  each. One line per step goes on the BRAIN screen:                         */
+/*    move  = how far the step asked to go (+ = right / forward)              */
+/*    time  = seconds until the motion said it was done                      */
+/*    over  = how far it went PAST the target (0 = never passed it)           */
+/*    final = where it ended after the pause: + = stopped short of the        */
+/*            target, - = ended past it                                       */
+/*  Turns are in degrees, drives in inches. Fits in the 15 s autonomous part  */
+/*  of a timed run. Needs a clear spot ~3 ft long with room to spin.          */
+/*----------------------------------------------------------------------------*/
+
+static const int PID_TEST_PAUSE_MS = 750; // still time after each step
+
+// Overshoot tracker: while pidSampling is true, a background task samples
+// the robot every 10 ms and keeps the biggest distance it went PAST the
+// current step's target (turns: degrees, drives: inches).
+static volatile bool pidSampling = false;
+static volatile bool pidSampleTurn = true;
+static volatile double pidTargetHeading = 0.0; // turn: target heading
+static volatile double pidTurnSign = 1.0;      // turn: +1 clockwise, -1 not
+static volatile double pidTargetX = 0.0;       // drive: target point
+static volatile double pidTargetY = 0.0;
+static volatile double pidDirX = 0.0; // drive: unit vector, way of travel
+static volatile double pidDirY = 1.0;
+static volatile double pidOvershoot = 0.0;
+
+static int pidSamplerTask() {
+  while (true) {
+    if (pidSampling) {
+      Pose p = getPose();
+      double past = 0.0;
+      if (pidSampleTurn) {
+        // Only near the target (within 90 deg) - a 180 turn starts right
+        // at the +/-180 wrap, which would otherwise look like overshoot.
+        double error = wrap180(pidTargetHeading - p.theta);
+        if (std::fabs(error) < 90.0)
+          past = -pidTurnSign * error;
+      } else {
+        past = (p.x - pidTargetX) * pidDirX + (p.y - pidTargetY) * pidDirY;
+      }
+      if (past > pidOvershoot)
+        pidOvershoot = past;
+    }
+    wait(10, msec);
+  }
+  return 0;
+}
+
+static int pidStepNum = 0; // step number, also picks the brain screen row
+
+static void pidShow(const char *kind, double move, double ms, double over,
+                    double final) {
+  pidStepNum++;
+  Brain.Screen.setCursor(pidStepNum + 2, 1); // rows 1-2 are the header
+  Brain.Screen.print("%d %-5s %6.1f %5.2fs %5.1f %6.1f", pidStepNum, kind,
+                     move, ms / 1000.0, over, final);
+}
+
+// One turn step: turn to `heading` the way `dir` says, pause, report.
+static void pidTestTurn(double heading, TurnDirection dir) {
+  // LONGEST: resolve it to the actual way round (the same choice
+  // turnToHeading makes), so over/final are measured from the right side.
+  if (dir == TurnDirection::LONGEST)
+    dir = wrap180(heading - getPose().theta) > 0.0
+              ? TurnDirection::COUNTERCLOCKWISE
+              : TurnDirection::CLOCKWISE;
+  double cw = wrap360(heading - getPose().theta); // clockwise distance
+  double move = dir == TurnDirection::CLOCKWISE ? cw
+                : dir == TurnDirection::COUNTERCLOCKWISE
+                    ? (cw == 0.0 ? 0.0 : cw - 360.0)
+                    : wrap180(heading - getPose().theta);
+  pidTargetHeading = heading;
+  pidTurnSign = move >= 0.0 ? 1.0 : -1.0;
+  pidSampleTurn = true;
+  pidOvershoot = 0.0;
+  pidSampling = true;
+
+  timer t;
+  turnToHeading(heading, dir, 3000); // 3 s: room for a 270 deg long turn
+  double ms = t.time(msec);
+  wait(PID_TEST_PAUSE_MS, msec); // still sampling: coasting past counts too
+  pidSampling = false;
+
+  double final = pidTurnSign * wrap180(heading - getPose().theta);
+  pidShow("turn", move, ms, pidOvershoot, final);
+}
+
+// One drive step: straight forward (+) or backward (-) `inches`, pause,
+// report.
+static void pidTestDrive(double inches) {
+  Pose start = getPose();
+  double h = toRadians(start.theta);
+  double fx = std::sin(h), fy = std::cos(h); // robot forward
+  double sign = inches >= 0.0 ? 1.0 : -1.0;
+  pidTargetX = start.x + inches * fx;
+  pidTargetY = start.y + inches * fy;
+  pidDirX = sign * fx;
+  pidDirY = sign * fy;
+  pidSampleTurn = false;
+  pidOvershoot = 0.0;
+  pidSampling = true;
+
+  timer t;
+  moveToPoint(pidTargetX, pidTargetY, 4000, inches < 0.0);
+  double ms = t.time(msec);
+  wait(PID_TEST_PAUSE_MS, msec); // still sampling: coasting past counts too
+  pidSampling = false;
+
+  Pose end = getPose();
+  double final =
+      (pidTargetX - end.x) * pidDirX + (pidTargetY - end.y) * pidDirY;
+  pidShow("drive", inches, ms, pidOvershoot, final);
+}
+
+// Turn/drive PID test (see "PID TUNING TEST" above). Runs from doNothing().
+static void driveTurnTest() {
   // (No fixed wait needed: autonomous() already waits until odometry runs.)
-  setPose({0.0, 0.0, 0.0}); // facing north, in the middle of the field
-  // moveToPoint(0.0, 24.0);        // just to make sure the odometry is running
-  // The long way: 0 -> 270 is 90 deg counterclockwise the short way, so this
-  // spins 270 deg clockwise. 3 s timeout so the longer turn can finish.
-  turnToHeading(270.0, TurnDirection::LONGEST, 3000);
+  setPose({0.0, 0.0, 0.0}); // "north" = whichever way the robot faces now
+  wait(1000, msec); // let the odometry settle before starting
+  Brain.Screen.clearScreen();
+  Brain.Screen.setCursor(1, 1);
+  Brain.Screen.print("# type    move   time  over  final");
+  Brain.Screen.setCursor(2, 1);
+  Brain.Screen.print("  (turns: degrees, drives: inches)");
+  pidStepNum = 0;
+  static bool samplerStarted = false;
+  if (!samplerStarted) {
+    thread sampler(pidSamplerTask);
+    samplerStarted = true;
+  }
+
+  // Turns (TURN_GAINS)
+  pidTestTurn(90.0, TurnDirection::LONGEST);         // 1: 90 right
+  // pidTestTurn(0.0, TurnDirection::SHORTEST);          // 2: 90 left
+  // pidTestTurn(180.0, TurnDirection::CLOCKWISE);       // 3: 180 right
+  // pidTestTurn(0.0, TurnDirection::COUNTERCLOCKWISE);  // 4: 180 left
+  // pidTestTurn(15.0, TurnDirection::SHORTEST);         // 5: 15 right
+  // pidTestTurn(0.0, TurnDirection::SHORTEST);          // 6: 15 left
+
+  // // Drives (DRIVE_GAINS)
+  // pidTestDrive(48.0);  // 7: 24" forward
+  // turnToHeading(0.0); // face north again
+  // wait(1000, msec);
+  // pidTestDrive(-48.0); // 8: 24" back
+
+  // The gains this run used, so a photo of the screen says what was tested.
+  Brain.Screen.setCursor(pidStepNum + 4, 1);
+  Brain.Screen.print("turn  kP %.2f kD %.3f", TURN_GAINS.kP, TURN_GAINS.kD);
+  Brain.Screen.setCursor(pidStepNum + 5, 1);
+  Brain.Screen.print("drive kP %.2f kD %.3f", DRIVE_GAINS.kP, DRIVE_GAINS.kD);
+}
+
+/*----------------------------------------------------------------------------*/
+/*                       LIFT TEST (runs from doNothing)                      */
+/*                                                                            */
+/*  spinToHeight up and down through the lift's range, with a pause after     */
+/*  each move. The robot doesn't drive. One line per step on the BRAIN        */
+/*  screen:                                                                   */
+/*    target = height asked for (inches)                                      */
+/*    time   = seconds until spinToHeight said it was done (2.00 = timed out) */
+/*    final  = height after the pause (shows sagging or drifting)            */
+/*    err    = target - final: + = ended low, - = ended high                  */
+/*  START THE PROGRAM WITH THE LIFT ALL THE WAY DOWN (that sets 0).           */
+/*----------------------------------------------------------------------------*/
+
+static void liftTestStep(double target) {
+  timer t;
+  spinToHeight(target);
+  double ms = t.time(msec);
+  wait(PID_TEST_PAUSE_MS, msec); // watch it hold
+  double final = liftHeightInches();
+
+  pidStepNum++;
+  Brain.Screen.setCursor(pidStepNum + 1, 1); // row 1 is the header
+  Brain.Screen.print("%d %6.1f %5.2fs %6.2f %6.2f", pidStepNum, target,
+                     ms / 1000.0, final, target - final);
+}
+
+static void liftTest() {
+  Brain.Screen.clearScreen();
+  Brain.Screen.setCursor(1, 1);
+  Brain.Screen.print("# target  time   final    err");
+  pidStepNum = 0;
+
+  spinToHeight(30.0); // start at the bottom, so 0 = bottom
+  
+  // liftTestStep(12.0);           // 1: up partway
+  // liftTestStep(24.0);           // 2: up more
+  // liftTestStep(LIFT_TOP_IN);    // 3: all the way up (36")
+  // liftTestStep(12.0);           // 4: back down a long way
+  // liftTestStep(LIFT_BOTTOM_IN); // 5: all the way down (2")
+
+  // // The gains this run used, so a photo of the screen says what was tested.
+  // Brain.Screen.setCursor(pidStepNum + 3, 1);
+  // Brain.Screen.print("lift kP %.3f kI %.3f kD %.4f", LIFT_GAINS.kP,
+  //                    LIFT_GAINS.kI, LIFT_GAINS.kD);
+}
+
+// NOT a do-nothing anymore: runs a test. It's also the default auton - pick
+// a real auton on the brain before a match.
+static void doNothing() {
+  liftTest();
+  // driveTurnTest(); // the turn/drive PID test - swap with the line above
 }
 
 // Test / tuning routine: drive a square-ish path and come back.
@@ -401,10 +599,12 @@ static volatile bool robotReady = false;
 // line every 100 ms.
 //   Line 1: X: <x>  Y: <y>    (inches, field center = 0, 0)
 //   Line 2: H: <heading>  <gear>  (degrees, clockwise, 0 = north)
+//   Line 3: Lift: <in> <deg>      (height above the bottom, inches and
+//                                  lift encoder degrees)
 // Until pre_auton finishes, line 1 says "Calibrating IMU" instead.
 static int controllerDisplayTask() {
   Controller.Screen.clearScreen();
-  bool firstLine = true;
+  int line = 1; // which line to update this time (1, 2, 3, 1, ...)
   while (true) {
     if (!robotReady) {
       Controller.Screen.setCursor(1, 1);
@@ -413,15 +613,16 @@ static int controllerDisplayTask() {
       continue;
     }
     Pose pose = getPose();
-    if (firstLine) {
-      Controller.Screen.setCursor(1, 1);
+    Controller.Screen.setCursor(line, 1);
+    if (line == 1)
       Controller.Screen.print("X:%6.1f Y:%6.1f  ", pose.x, pose.y);
-    } else {
-      Controller.Screen.setCursor(2, 1);
+    else if (line == 2)
       Controller.Screen.print("H:%6.1f  %s     ", pose.theta,
                               getGear() == Gear::HIGH ? "400" : "200");
-    }
-    firstLine = !firstLine;
+    else // lift height (inches, then degrees for LIFT_DEG_PER_INCH)
+      Controller.Screen.print("Lift:%5.1fin %5.0fd", liftHeightInches(),
+                              lift.position(rotationUnits::deg));
+    line = line % 3 + 1;
     wait(100, msec);
   }
   return 0;
@@ -507,25 +708,26 @@ static void driverWallReset() {
 //   Left stick Y  : forward / back      Right stick X : turn
 //   R1 / R2       : raise / lower lift  L1 / L2       : open / spin claw
 //   A             : toggle drive gear (200 <-> 400 rpm)
-//   X             : heading lock on / off
-//   Up / Down     : active toggle       Y             : wall reset
+//   Up            : heading lock on / off
+//   Y / X (hold)  : spin active toggle one way / the other way
+//   B             : wall reset
 void usercontrol(void) {
   // Heading lock state.
   double targetHeading = imu.rotation(rotationUnits::deg);
   int settleMs = 0;     // time left before the lock re-engages
-  bool lockOn = true;   // toggled with X
-  bool xWasPressed = false;
+  bool lockOn = true;   // toggled with Up
+  bool upWasPressed = false;
 
   while (true) {
     // Arcade drive.
     double forward = stickVolts(Controller.Axis3.position());
     double turn = stickVolts(Controller.Axis1.position());
 
-    // X toggles the heading lock (on the press, not while held).
-    bool xPressed = Controller.ButtonX.pressing();
-    if (xPressed && !xWasPressed)
+    // Up toggles the heading lock (on the press, not while held).
+    bool upPressed = Controller.ButtonUp.pressing();
+    if (upPressed && !upWasPressed)
       lockOn = !lockOn;
-    xWasPressed = xPressed;
+    upWasPressed = upPressed;
 
     // Heading lock: while the driver isn't turning, hold the heading they
     // left off at. After a turn, wait a moment for the robot to stop
@@ -558,7 +760,7 @@ void usercontrol(void) {
     // (holding would keep the jaws open).
     if (Controller.ButtonL1.pressing()) {
       claw.spin(directionType::rev, CLAW_RELEASE_VOLTS, voltageUnits::volt);
-      claw.setStopping(hold);
+      claw.setStopping(coast);
     }
     else if (Controller.ButtonL2.pressing()){
       claw.spin(directionType::fwd, CLAW_GRAB_VOLTS, voltageUnits::volt);
@@ -566,9 +768,15 @@ void usercontrol(void) {
     }
     else
       claw.stop(); // let the bands close it
-    // spinMechanism(activeToggle, buttonVolts(Controller.ButtonUp.pressing(),
-    //                                         Controller.ButtonDown.pressing(),
-    //                                         TOGGLE_VOLTS));
+    // Active toggle: Y spins it forward (the way auton's spinToggle does), X
+    // spins it the other way, and it coasts when neither is held.
+    double toggleVolts = buttonVolts(Controller.ButtonY.pressing(),
+                                     Controller.ButtonX.pressing(),
+                                     TOGGLE_VOLTS);
+    if (toggleVolts == 0.0)
+      activeToggle.stop(brakeType::coast);
+    else
+      activeToggle.spin(directionType::fwd, toggleVolts, voltageUnits::volt);
 
     // (The pose is shown on the controller by controllerDisplayTask, which
     // runs the whole time - see pre_auton.)
@@ -585,7 +793,7 @@ int main() {
 
   // One-press buttons (registered once here so they never double up).
   Controller.ButtonA.pressed(toggleGear);
-  Controller.ButtonY.pressed(driverWallReset);
+  Controller.ButtonB.pressed(driverWallReset); // (Y spins the toggle)
 
   // Run the pre-autonomous function.
   pre_auton();

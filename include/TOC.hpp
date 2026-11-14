@@ -28,7 +28,12 @@
 
 // Drive wheel diameter in inches. 2.75" wheels rarely measure exactly 2.75":
 // drive a known distance, compare to what odometry says, and adjust this.
-constexpr double WHEEL_DIAMETER = 2.75;
+// Calibrated in two passes (each = real distance / what odometry said):
+//   1. odometry 24", real 25"   -> x 25/24
+//   2. odometry 24", real 24.5" -> x 24.5/24
+// Effective diameter ~2.924". To recalibrate, multiply again by
+// (real distance / distance odometry reported).
+constexpr double WHEEL_DIAMETER = 2.75 * (25.0 / 24.0) * (24.5 / 24.0);
 
 // Distance between the left and right wheel contact patches, in inches.
 // The frame is 25 holes wide (24 gaps x 0.5" = 12"). Measure the real
@@ -90,7 +95,24 @@ struct PIDGains {
 constexpr PIDGains DRIVE_GAINS = {2.0, 0.0, 0.137, 3.0};
 
 // Turn gains. Error is in degrees, output is volts.
-constexpr PIDGains TURN_GAINS = {5.0, 0.0, 0.512, 10.0};
+// kP 0.4 = full 12 V until ~30 deg away, then it eases off, so the robot has
+// time to slow down. (Was {5.0, 0.0, 0.462}: full power until 2.4 deg away,
+// which at 400 rpm can't stop in time - it oscillated and timed out.)
+// Tuning order: kP until it nearly reaches the target, kD to stop overshoot,
+// then kI only if it stops a few degrees short.
+// kI 0.5: it stops ~3 deg short - at 3 deg, kP alone gives only ~1.5 V,
+// not enough to beat friction. The integral (only within 10 deg of the
+// target, reset each time it crosses the target) adds ~1.5 V per second it
+// stays stuck, until it moves. (1.0 was tried before and may have caused
+// oscillation, so this is gentler.)
+constexpr PIDGains TURN_GAINS = {0.5, 0.0, 0.07, 10.0};
+
+// Steering gains: how hard moveToPoint turns to keep pointing at its target
+// WHILE driving. Error is in degrees, output is volts. Kept much gentler
+// than TURN_GAINS on purpose - strong steering makes the robot wiggle left
+// and right as it slows near the target. No kD: the aim point moves as the
+// robot drives, and kD turns each jump in it into a kick.
+constexpr PIDGains STEER_GAINS = {0.3, 0.0, 0.0, 0.0};
 
 /*============================================================================*/
 /*                         MOTION / LOOP SETTINGS                             */
@@ -119,6 +141,18 @@ constexpr double EKF_Q_THETA_PER_RAD = 0.05;
 constexpr double EKF_Q_MIN = 1e-6;
 // How noisy the inertial sensor heading is (radians^2). Smaller = trust more.
 constexpr double EKF_R_IMU = 1e-4;
+
+// The V5 inertial sensor's rotation reading can be a few % off, so odometry
+// multiplies it by this. 1.0 = trust the sensor.
+// CAREFUL: the PID test's turn is LONGEST (0 -> 90 = 270 deg counter-
+// clockwise), so 90/86.8 was backwards - ending at 86.8 means the sensor
+// counted 273.2 deg for a real 270 (reads ~1.2% HIGH, so ~270/273.2 = 0.988).
+// To measure it properly: with this at 1.0, start the program (driver
+// control is fine), line the robot up on a tile line, turn it BY HAND
+// exactly 10 full circles CLOCKWISE back to the same line, and read H on the
+// controller. H = 12 means it counted 3612 -> 3600.0 / 3612.0. H = 348 means
+// it counted 3588 -> 3600.0 / 3588.0.
+constexpr double IMU_SCALE = 1.0;
 
 /*============================================================================*/
 /*                         DISTANCE SENSOR SETTINGS                           */
@@ -152,6 +186,25 @@ constexpr int HEADING_LOCK_SETTLE_MS = 200;   // let the robot coast this long
 // when the program starts - with the lift all the way down - and nothing is
 // allowed to drive the lift below this (see spinLift in motions.cpp).
 constexpr double LIFT_BOTTOM_DEG = 0.0;
+
+// Lift height in inches, measured the way the team measures it: the lift is
+// 2" at the bottom and 36" at the top. Measured: bottom = 2" at -31 deg,
+// top = 36" at 1225 deg, so 1256 deg over 34" = ~36.9 deg per inch.
+// (Encoder 0 = wherever the lift was when the program started, which
+// should be the bottom.)
+constexpr double LIFT_BOTTOM_IN = 2.0;  // height when the lift is all the way down
+constexpr double LIFT_TOP_IN = 36.0;    // height when it's all the way up
+constexpr double LIFT_DEG_PER_INCH = (1225.0 - (-31.0)) / (36.0 - 2.0);
+
+// Lift PID (spinToHeight). Heights are in inches, LIFT_BOTTOM_IN (2") to
+// LIFT_TOP_IN (36"). To find
+// a height: drive the lift there with R1/R2 and read "Lift:" on line 3 of
+// the controller. Inside, the PID works in encoder degrees: error is in
+// degrees, output is volts. STARTING POINTS - tune on the robot: kP until it
+// gets close, kD to stop it overshooting, kI (only within integralRange deg)
+// if gravity keeps it short.
+constexpr PIDGains LIFT_GAINS = {1.0, 0.0, 0.002, 60.0};
+constexpr double LIFT_TOLERANCE_DEG = 2.0; // "close enough" to a height
 
 // The lift is TIME-based (no PID). Each height is "ms of lifting at full
 // LIFT_TIMED_VOLTS, starting from the very bottom". The skills code keeps
@@ -286,6 +339,10 @@ void spinMechanism(vex::motor_group &mech, double volts); // 0 = hold
 double buttonVolts(bool forward, bool reverse, double volts);
 void spinLift(double volts);           // + = up; won't go below the bottom
 void runLiftFor(double volts, int ms); // spinLift for a time, then hold
+// Lift PID to a height in inches (2" bottom to 36" top), then hold.
+void spinToHeight(double heightIn, int timeoutMs = 2000,
+                  double maxVolts = MAX_VOLTS);
+double liftHeightInches(); // current lift height in inches (2" = bottom)
 
 // ---- Motions (all PID, all use odometry) ----
 // Which way a turn goes. SHORTEST picks whichever way is less than 180;
