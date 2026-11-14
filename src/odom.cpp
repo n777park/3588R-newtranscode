@@ -41,6 +41,8 @@ static double imuDegrees() {
 // The background loop that keeps the pose up to date.
 static int odometryTask() {
   while (true) {
+    telemetryLoopStart(); // times the loop for the visualizer
+
     // 1. Read encoders and find how far each side moved since last loop.
     double leftRev = leftDrive.position(vex::rotationUnits::rev);
     double rightRev = rightDrive.position(vex::rotationUnits::rev);
@@ -54,7 +56,11 @@ static int odometryTask() {
     filter.predict(dLeft, dRight);
     // 3. Update: correct heading with the inertial sensor.
     filter.updateHeading(imuDegrees() + imuOffset);
+    Pose pose = filter.getPose();
     poseLock.unlock();
+
+    // 4. Log for the visualizer (outside the lock: it reads other sensors).
+    logTelemetry(pose);
 
     vex::this_thread::sleep_for(LOOP_MS);
   }
@@ -84,4 +90,6 @@ void setPose(const Pose &pose) {
   // Re-line-up the inertial sensor so it agrees with the new heading.
   imuOffset = pose.theta - imuDegrees();
   poseLock.unlock();
+  // The pose jumps here; the visualizer marks it so the trail isn't misread.
+  telemetryEvent("setpose %.1f %.1f %.1f", pose.x, pose.y, pose.theta);
 }

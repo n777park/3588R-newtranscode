@@ -696,6 +696,7 @@ void pre_auton(void) {
   while (imu.isCalibrating())
     vex::wait(20, msec);
 
+  startTelemetry(); // visualizer logs (SD card + USB); before odometry
   startOdometry();
   robotReady = true; // autonomous can start now
 
@@ -715,6 +716,7 @@ void autonomous(void) {
   while (!robotReady)
     vex::wait(10, msec);
 
+  telemetryEvent("auton start %s", AUTON_NAMES[selectedAuton]);
   switch (selectedAuton) {
   case 0:
     matchLeft();
@@ -758,6 +760,8 @@ static void driverWallReset() {
 //   Y / X (hold)  : spin active toggle one way / the other way
 //   B             : wall reset
 void usercontrol(void) {
+  telemetryEvent("opcontrol start");
+
   // Heading lock state.
   double targetHeading = imu.rotation(rotationUnits::deg);
   int settleMs = 0;     // time left before the lock re-engages

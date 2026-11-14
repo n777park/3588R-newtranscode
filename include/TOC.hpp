@@ -242,6 +242,24 @@ constexpr int TOGGLE_FLIP_MS = 600;        // how long to spin it
 constexpr int LOAD_WAIT_MS = 800; // time for the loader to drop a match load
 
 /*============================================================================*/
+/*                     VISUALIZER TELEMETRY (telemetry.cpp)                   */
+/*   Logs for the field visualizer (Documents/VEX/visualizer). Every 10 ms    */
+/*   loop goes to the SD card (log_NNN.txt): import it in the visualizer's    */
+/*   Playback tab. A thinned-out copy streams over the USB cable live.        */
+/*============================================================================*/
+
+// Live USB stream: send every Nth sample (the SD card still gets all of them).
+constexpr int TELEMETRY_LIVE_EVERY = 5;
+
+// Live pose over VEXlink to the visualizer's worker brain (needs a SECOND
+// radio on the robot - the controller's radio can't do it). Off until that
+// radio is plugged in: set the port, then flip this to true. The worker
+// listens for this link name.
+constexpr bool TELEMETRY_LINK_ENABLED = false;
+constexpr int TELEMETRY_LINK_PORT = 21; // smart port number (1-21)
+constexpr const char *TELEMETRY_LINK_NAME = "AURA_LINK";
+
+/*============================================================================*/
 /*                                 TYPES                                      */
 /*============================================================================*/
 
@@ -369,3 +387,13 @@ bool resetHeadingOffBackWall(); // true if both back sensors saw a wall
 void startOdometry();         // call once after the IMU is calibrated
 Pose getPose();               // where the robot thinks it is right now
 void setPose(const Pose &pose); // tell the robot where it is
+
+/*============================================================================*/
+/*                    VISUALIZER TELEMETRY  (telemetry.cpp)                   */
+/*============================================================================*/
+
+void startTelemetry();                    // call once, before startOdometry()
+void logTelemetry(const Pose &pose);      // odometry loop, once per loop
+void telemetryLoopStart();                // first thing in the odometry loop
+void telemetryEvent(const char *fmt, ...); // flag on the timeline, printf-style
+void telemetryLift(double refDeg, double pidVolts); // spinToHeight, each loop

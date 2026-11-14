@@ -319,10 +319,13 @@ void spinToHeight(double heightIn, int timeoutMs, double maxVolts) {
     double error = heightDeg - lift.position(rotationUnits::deg);
     if (settle.update(std::fabs(error) < LIFT_TOLERANCE_DEG))
       break;
-    spinLift(clamp(liftPID.update(error), maxVolts));
+    double volts = clamp(liftPID.update(error), maxVolts);
+    telemetryLift(heightDeg, volts); // visualizer "lift" stream
+    spinLift(volts);
     this_thread::sleep_for(LOOP_MS);
   }
   spinLift(0.0); // hold at the height
+  telemetryLift(NAN, NAN); // PID off
 }
 
 /*============================================================================*/
@@ -337,6 +340,14 @@ static double headingTo(double x, double y, bool reverse) {
   return wrap360(reverse ? heading + 180.0 : heading);
 }
 
+// Visualizer markers: each motion gets a number, logged when it starts and
+// when it ends, so a log can be split into motions and timeouts spotted.
+static int motionCount = 0;
+
+static void motionEnd(int id, bool timedOut) {
+  telemetryEvent("motion %d %s", id, timedOut ? "timeout" : "done");
+}
+
 // Turn in place to a field heading (degrees, clockwise, 0 = +Y), going the
 // way `dir` says. A forced direction is only kept until the robot is within
 // 90 degrees of the target; after that it goes the shortest way, so a small
@@ -347,6 +358,10 @@ void turnToHeading(double heading, TurnDirection dir, int timeoutMs,
   PID turnPID(TURN_GAINS);
   SettleTimer settle;
   timer elapsed;
+  int id = ++motionCount;
+  telemetryEvent("segment %d", id);
+  telemetryEvent("motion %d turnToHeading %.1f", id, heading);
+  bool settled = false;
 
   // LONGEST: decide once, at the start, which way round is longer - the
   // opposite of the shortest way. (Positive error = clockwise.)
@@ -371,12 +386,15 @@ void turnToHeading(double heading, TurnDirection dir, int timeoutMs,
       else
         error = forcedError;
     }
-    if (settle.update(std::fabs(error) < TURN_TOLERANCE))
+    if (settle.update(std::fabs(error) < TURN_TOLERANCE)) {
+      settled = true;
       break;
+    }
     arcadeVolts(0.0, clamp(turnPID.update(error), maxVolts));
     this_thread::sleep_for(LOOP_MS);
   }
   stopDrive();
+  motionEnd(id, !settled);
 }
 
 // Turn in place to face (x, y), going the way `dir` says. With reverse, the
@@ -394,6 +412,10 @@ void moveToPoint(double x, double y, int timeoutMs, bool reverse,
   SettleTimer settle;
   timer elapsed;
   double targetHeading = headingTo(x, y, reverse);
+  int id = ++motionCount;
+  telemetryEvent("segment %d", id);
+  telemetryEvent("motion %d moveToPoint %.1f %.1f", id, x, y);
+  bool settled = false;
 
   while (elapsed.time(timeUnits::msec) < timeoutMs) {
     Pose pose = getPose();
@@ -413,8 +435,10 @@ void moveToPoint(double x, double y, int timeoutMs, bool reverse,
     // sideways miss would keep it waiting until the timeout.
     bool close = distance < STOP_STEERING_DIST;
     if (settle.update(close ? std::fabs(forwardError) < DRIVE_TOLERANCE
-                            : distance < DRIVE_TOLERANCE))
+                            : distance < DRIVE_TOLERANCE)) {
+      settled = true;
       break;
+    }
 
     // Keep re-aiming at the point until we're close, then lock the heading
     // so tiny position errors don't make the robot spin in place.
@@ -427,6 +451,7 @@ void moveToPoint(double x, double y, int timeoutMs, bool reverse,
     this_thread::sleep_for(LOOP_MS);
   }
   stopDrive();
+  motionEnd(id, !settled);
 }
 
 /*============================================================================*/
