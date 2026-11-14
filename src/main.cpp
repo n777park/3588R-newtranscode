@@ -102,39 +102,45 @@ static void matchLeft() {
   // clawOpen(); // open the claw so it can grab a pin
   
   // return;
-  setPose({
-           -FIELD_HALF + backLeftDistSensor.objectDistance(inches) + 9.0,
-           FIELD_HALF - leftDistSensor.objectDistance(inches) - 4.0,
-           90.0});
+  
   spinToHeight(10.0, 600); // raise the lift for 0.5 s
-
+  setPose({0,-60 , 90});
   resetHeadingOffBackWall(); // reset the inertial sensor to 0 deg (facing north)
   thread spinToggle = thread([]() {
     clawIntake(); // start the claw spinning in
     spinMechanism(activeToggle, TOGGLE_VOLTS); // start the toggle spinning in
     vex::wait(600, msec); // let it run for 3.0 s, then stop
     spinMechanism(activeToggle, 0.0);
+    clawStop(); // stop the claw after 0.5 s
   });
   // vex::wait(100000,msec);
   // turnToPoint(-48.0, -24.0);
   // vex::wait(1000000,msec)
   vex::wait(400,msec);
   moveToPoint(-48.0, 0.0, 800);
+  turnToHeading(90.0, TurnDirection::SHORTEST, 800);
+  setPose({
+           -FIELD_HALF + backLeftDistSensor.objectDistance(inches) + 9.0,
+           FIELD_HALF - leftDistSensor.objectDistance(inches) - 4.0,
+           current.theta});
+  // return;
   turnToPoint(-48.0, -24.0, TurnDirection::SHORTEST,false, 800);
     clawStop(); // stop the claw after 0.5 s
 
   moveToPoint(-47.0, -17.0, 900);
   spinToHeight(6.0, 400);
+  // return;
 
   disableAutoClamp(1000); // releasing - don't let the auto clamp re-grab it
   clawOpen();
   // Claw Picks up
   moveToPoint(-48.0, 0.0, 800, true);
   clawStop();
+  turnToHeading(180.0, TurnDirection::SHORTEST, 800);
   { // reset x from the right distance sensor; keep the current y and heading
     Pose current = getPose();
     setPose({-FIELD_HALF + rightDistSensor.objectDistance(inches) + 4.0,
-             current.y,
+             -FIELD_HALF + backRightDistSensor.objectDistance(inches) + 9.0,
              current.theta});
   }
   spinToHeight(0.0, 600); // lower the lift for 0
@@ -164,7 +170,7 @@ static void matchLeft() {
   turnToPoint(-48.0, -48.0);
   clawOpen();
   //Claw Places down
-  moveToPoint(-48.0, -48.0);
+  moveToPoint(-46.0, -48.0, 800, false, 5.0);
   clawStop();
 
   clawIntake();
@@ -178,34 +184,41 @@ static void matchLeft() {
 //bottom
 static void matchBottom() {
     // Facing north: right sensor sees the east wall, back sees the south wall.
+    vex::wait(1000,msec);
   setPose({FIELD_HALF - rightDistSensor.objectDistance(inches) - 4.0,
            -FIELD_HALF + backRightDistSensor.objectDistance(inches) + 9.0,
            0.0});
   thread spinToggle = thread([]() {
     spinMechanism(activeToggle, TOGGLE_VOLTS); // start the toggle spinning in
-    vex::wait(300, msec); // let it run for 3.0 s, then stop
+    vex::wait(500, msec); // let it run for 3.0 s, then stop
     spinMechanism(activeToggle, 0.0);
   });
+  spinToHeight(8.0, 600); // raise the lift for 0.5 s
   
   // thread raiselift = thread([]() {
   //   runLiftFor(LIFT_VOLTS, 500); // raise the lift for 0.5 s
   // });
-  moveToPoint(-10, -48.0, 500);
+  moveToPoint(0, -48.0, 500);
   moveToPoint(-24, -48.0, 600);
-  runLiftFor(-LIFT_VOLTS, 300); // lower the lift for 0.3 s
+  spinToHeight(4.0, 600); // lower the lift for 0.5 s
+  clawOpen();
   moveToPoint(-10, -48.0, 500);
   turnToPoint(-25,-64.0);
+  clawStop();
+  spinToHeight(0.0, 600); // lower the lift for 0.5 s
+    clawIntake();
   moveToPoint(-22,-64.0, 800); //grab pin on wall
-  thread raiselift2 = thread([]() {
-    runLiftFor(LIFT_VOLTS, 1000); // raise the lift for 1 s
-  });
+  clawStop();
   moveToPoint(-10,-48.0, 800);
+  spinToHeight(15.0, 600); // raise the lift for 0.5 s
   turnToPoint(-24,-48);
-  thread lowerlift = thread([]() {
-    vex::wait(300, msec);
-    runLiftFor(-LIFT_VOLTS, 1000); // lower the lift for 1 s
-  });
+  // thread lowerlift = thread([]() {
+  //   vex::wait(300, msec);
+  //   runLiftFor(-LIFT_VOLTS, 1000); // lower the lift for 1 s
+  // });
   moveToPoint(-24,-48.0, 800);
+  spinToHeight(10.0, 600); // lower the lift for 0.5 s
+  clawOpen();
 }
 
 /*----------------------------------------------------------------------------*/
