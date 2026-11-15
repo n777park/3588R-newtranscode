@@ -192,6 +192,7 @@ static void matchLeft() {
 static void matchBottom() {
     // Facing north: right sensor sees the east wall, back sees the south wall.
     vex::wait(1000,msec);
+  deaddriveforward(5.0, 500);
   setPose({FIELD_HALF - rightDistSensor.objectDistance(inches) - 4.0,
            -FIELD_HALF + backRightDistSensor.objectDistance(inches) + 9.0,
            0.0});
