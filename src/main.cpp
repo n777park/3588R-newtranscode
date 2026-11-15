@@ -133,14 +133,14 @@ static void matchLeft() {
   turnToPoint(-48.0, -24.0, TurnDirection::SHORTEST,false, 800);
     clawStop(); // stop the claw after 0.5 s
 
-  moveToPoint(-48.0, -17.0, 900);
+  moveToPoint(-48.0, -19.0, 900);
   spinToHeight(6.0, 400);
   // return;
 
   disableAutoClamp(1000); // releasing - don't let the auto clamp re-grab it
   clawOpen();
   // Claw Picks up
-  deaddriveforward(-7.0, 600);
+  deaddriveforward(-7.0, 400);
   clawStop();
   turnToHeading(180.0, TurnDirection::SHORTEST, 800);
   { // reset x from the right distance sensor; keep the current y and heading
