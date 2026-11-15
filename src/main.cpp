@@ -133,20 +133,20 @@ static void matchLeft() {
   turnToPoint(-48.0, -24.0, TurnDirection::SHORTEST,false, 800);
     clawStop(); // stop the claw after 0.5 s
 
-  moveToPoint(-47.0, -17.0, 900);
+  moveToPoint(-48.0, -17.0, 900);
   spinToHeight(6.0, 400);
   // return;
 
   disableAutoClamp(1000); // releasing - don't let the auto clamp re-grab it
   clawOpen();
   // Claw Picks up
-  moveToPoint(-40.0, 0.0, 800, true);
+  deaddriveforward(-7.0, 600);
   clawStop();
   turnToHeading(180.0, TurnDirection::SHORTEST, 800);
   { // reset x from the right distance sensor; keep the current y and heading
     Pose current = getPose();
     setPose({-FIELD_HALF + rightDistSensor.objectDistance(inches) + 4.0,
-             -FIELD_HALF + backRightDistSensor.objectDistance(inches) + 9.0,
+             current.y,
              current.theta});
   }
   spinToHeight(0.0, 600); // lower the lift for 0
@@ -170,20 +170,19 @@ static void matchLeft() {
     clawStop();
 
   });
-  moveToPoint(-24.0, -24.0, 800, true);
-
+  deaddriveforward(-5.0, 600);
   spinToHeight(0.0, 1200); // lower the lift for 0.5 s
   turnToPoint(-48.0, -48.0);
   clawOpen();
   //Claw Places down
-  moveToPoint(-46.0, -48.0, 800, false, 5.0);
+  moveToPoint(-46.0, -48.0, 900, false, 4.0);
   clawStop();
 
   clawIntake();
   spinToHeight(18.0, 1600); // raise the lift for
   clawStop();
-  turnToPoint(-24.0, -48.0);
-  moveToPoint(-24.0, -48.0);
+  turnToPoint(-48.0, -24.0);
+  moveToPoint(-48.0, -24.0);
   disableAutoClamp(1500); // releasing - don't let the auto clamp re-grab it
   clawOpen();
 }
@@ -225,6 +224,8 @@ static void matchBottom() {
   moveToPoint(-24,-48.0, 800);
   spinToHeight(10.0, 600); // lower the lift for 0.5 s
   clawOpen();
+  wait(500,msec);
+  clawStop();
 }
 
 /*----------------------------------------------------------------------------*/
