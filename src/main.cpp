@@ -203,8 +203,8 @@ static void matchBottom() {
   // thread raiselift = thread([]() {
   //   runLiftFor(LIFT_VOLTS, 500); // raise the lift for 0.5 s
   // // // });
-  // moveToPoint(-24.0, -48.0, 500);
-  moveToPoint(-24.0, -48.0, 1000);
+  moveToPoint(-28.0, -52.0, 500);
+  moveToPoint(-28.0, -52.0, 1000);
   spinToHeight(4.0, 600); // lower the lift for 0.5 s
   clawOpen();
   moveToPoint(-10.0, -48.0, 500);
