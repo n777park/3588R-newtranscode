@@ -142,7 +142,7 @@ static void matchLeft() {
   // Claw Picks up
   deaddriveforward(-7.0, 400);
   clawStop();
-  turnToHeading(180.0, TurnDirection::SHORTEST, 800);
+  // turnToHeading(180.0, TurnDirection::SHORTEST, 800);
   { // reset x from the right distance sensor; keep the current y and heading
     Pose current = getPose();
     setPose({-FIELD_HALF + rightDistSensor.objectDistance(inches) + 4.0,
