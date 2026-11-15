@@ -123,8 +123,8 @@ static void matchLeft() {
            90.0});
   // return;
   resetHeadingOffBackWall(); 
-  moveToPoint(-48.0, 16.0, 800);
-  turnToHeading(90.0, TurnDirection::SHORTEST, 800);
+  moveToPoint(-48.0, 0.0, 800);
+  // turnToHeading(90.0, TurnDirection::SHORTEST, 800);
   setPose({
            -FIELD_HALF + backLeftDistSensor.objectDistance(inches) + 9.0,
            FIELD_HALF - leftDistSensor.objectDistance(inches) - 4.0,
