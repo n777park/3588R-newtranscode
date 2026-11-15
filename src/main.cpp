@@ -125,10 +125,10 @@ static void matchLeft() {
   resetHeadingOffBackWall(); 
   moveToPoint(-48.0, 0.0, 800);
   // turnToHeading(90.0, TurnDirection::SHORTEST, 800);
-  setPose({
-           -FIELD_HALF + backLeftDistSensor.objectDistance(inches) + 9.0,
-           FIELD_HALF - leftDistSensor.objectDistance(inches) - 4.0,
-           getPose().theta}); // keep the heading it has now
+  // setPose({
+  //          -FIELD_HALF + backLeftDistSensor.objectDistance(inches) + 9.0,
+  //          FIELD_HALF - leftDistSensor.objectDistance(inches) - 4.0,
+  //          getPose().theta}); // keep the heading it has now
   // return;
   turnToPoint(-48.0, -24.0, TurnDirection::SHORTEST,false, 800);
     clawStop(); // stop the claw after 0.5 s
@@ -140,7 +140,7 @@ static void matchLeft() {
   disableAutoClamp(1000); // releasing - don't let the auto clamp re-grab it
   clawOpen();
   // Claw Picks up
-  moveToPoint(-48.0, 0.0, 800, true);
+  moveToPoint(-40.0, 0.0, 800, true);
   clawStop();
   turnToHeading(180.0, TurnDirection::SHORTEST, 800);
   { // reset x from the right distance sensor; keep the current y and heading
