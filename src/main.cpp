@@ -203,17 +203,17 @@ static void matchBottom() {
   // thread raiselift = thread([]() {
   //   runLiftFor(LIFT_VOLTS, 500); // raise the lift for 0.5 s
   // // // });
-  moveToPoint(-22.0, -47.0, 3000);
+  moveToPoint(-22.0, -45.0, 3000);
   // moveToPoint(-28.0, -52.0, 1000);
-  spinToHeight(4.0, 600); // lower the lift for 0.5 s
+  spinToHeight(4.0, 400); // lower the lift for 0.5 s
   clawOpen();
-  deaddriveforward(-5.0, 500);
+  deaddriveforward(-5.0, 300);
   clawStop();
 
-  turnToPoint(-26.0,-68.0);
+  turnToPoint(-31.0,-68.0);
   spinToHeight(0.0, 600); // lower the lift for 0.5 s
     clawIntake();
-  moveToPoint(-28.0,-68.0, 800); //grab pin on wall
+  moveToPoint(-33.0,-68.0, 800); //grab pin on wall
   clawStop();
   moveToPoint(-10.0,-48.0, 800);
   spinToHeight(15.0, 600); // raise the lift for 0.5 s
