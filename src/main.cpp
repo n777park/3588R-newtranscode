@@ -123,8 +123,8 @@ static void matchLeft() {
            90.0});
   // return;
   resetHeadingOffBackWall(); 
-  moveToPoint(-48.0, 0.0, 800);
-  // turnToHeading(90.0, TurnDirection::SHORTEST, 800);
+  moveToPoint(-48.0, 16.0, 800);
+  turnToHeading(90.0, TurnDirection::SHORTEST, 800);
   setPose({
            -FIELD_HALF + backLeftDistSensor.objectDistance(inches) + 9.0,
            FIELD_HALF - leftDistSensor.objectDistance(inches) - 4.0,
@@ -173,17 +173,17 @@ static void matchLeft() {
   moveToPoint(-24.0, -24.0, 800, true);
 
   spinToHeight(0.0, 1200); // lower the lift for 0.5 s
-  turnToPoint(-48.0, -48.0, TurnDirection::SHORTEST, false, 800);
+  turnToPoint(-48.0, -48.0);
   clawOpen();
   //Claw Places down
-  moveToPoint(-46.0, -48.0, 1500, false, 5.0);
+  moveToPoint(-46.0, -48.0, 800, false, 5.0);
   clawStop();
 
   clawIntake();
   spinToHeight(18.0, 1600); // raise the lift for
   clawStop();
-  turnToPoint(-48.0, -24.0, TurnDirection::SHORTEST, false, 800);
-  moveToPoint(-48.0, -24.0, 1500, false, 5.0);
+  turnToPoint(-24.0, -48.0);
+  moveToPoint(-24.0, -48.0);
   disableAutoClamp(1500); // releasing - don't let the auto clamp re-grab it
   clawOpen();
 }
@@ -209,11 +209,11 @@ static void matchBottom() {
   spinToHeight(4.0, 600); // lower the lift for 0.5 s
   clawOpen();
   moveToPoint(-10.0, -48.0, 500);
-  turnToPoint(-25.0,-64.0);
+  turnToPoint(-22.0,-68.0);
   clawStop();
   spinToHeight(0.0, 600); // lower the lift for 0.5 s
     clawIntake();
-  moveToPoint(-22.0,-64.0, 800); //grab pin on wall
+  moveToPoint(-22.0,-68.0, 800); //grab pin on wall
   clawStop();
   moveToPoint(-10.0,-48.0, 800);
   spinToHeight(15.0, 600); // raise the lift for 0.5 s
