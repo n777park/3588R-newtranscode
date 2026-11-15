@@ -173,17 +173,17 @@ static void matchLeft() {
   moveToPoint(-24.0, -24.0, 800, true);
 
   spinToHeight(0.0, 1200); // lower the lift for 0.5 s
-  turnToPoint(-48.0, -48.0);
+  turnToPoint(-48.0, -48.0, TurnDirection::SHORTEST, false, 800);
   clawOpen();
   //Claw Places down
-  moveToPoint(-46.0, -48.0, 800, false, 5.0);
+  moveToPoint(-46.0, -48.0, 1500, false, 5.0);
   clawStop();
 
   clawIntake();
   spinToHeight(18.0, 1600); // raise the lift for
   clawStop();
-  turnToPoint(-24.0, -48.0);
-  moveToPoint(-24.0, -48.0);
+  turnToPoint(-48.0, -24.0, TurnDirection::SHORTEST, false, 800);
+  moveToPoint(-48.0, -24.0, 1500, false, 5.0);
   disableAutoClamp(1500); // releasing - don't let the auto clamp re-grab it
   clawOpen();
 }
@@ -197,7 +197,7 @@ static void matchBottom() {
   thread spinToggle = thread([]() {
     spinMechanism(activeToggle, TOGGLE_VOLTS); // start the toggle spinning in
     vex::wait(500, msec); // let it run for 3.0 s, then stop
-    spinMechanism(activeTo`ggle, 0.0);
+    spinMechanism(activeToggle, 0.0);
   });
   spinToHeight(8.0, 600); // raise the lift for 0.5 s
   
