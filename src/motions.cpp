@@ -397,6 +397,8 @@ void turnToPoint(double x, double y, TurnDirection dir, bool reverse,
 }
 
 // Drive to (x, y) while steering toward it. With reverse, drives backward.
+// If the point starts more than TURN_FIRST_DEG off to the side, it turns in
+// place to face it first. timeoutMs covers the turn AND the drive.
 void moveToPoint(double x, double y, int timeoutMs, bool reverse,
                  double maxVolts) {
   PID drivePID(DRIVE_GAINS);
@@ -404,6 +406,17 @@ void moveToPoint(double x, double y, int timeoutMs, bool reverse,
   SettleTimer settle;
   timer elapsed;
   double targetHeading = headingTo(x, y, reverse);
+
+  // Point way off to the side (e.g. 90 deg, right after a wall reset): turn
+  // to face it first. The gentle, undamped steering below can't handle a big
+  // error - it maxes out at a full-power spin, whips past the heading and
+  // swings back and forth instead of driving (the "spin of death").
+  Pose start = getPose();
+  if (std::hypot(x - start.x, y - start.y) > STOP_STEERING_DIST &&
+      std::fabs(wrap180(targetHeading - start.theta)) > TURN_FIRST_DEG) {
+    turnToHeading(targetHeading, TurnDirection::SHORTEST, timeoutMs, maxVolts);
+    targetHeading = headingTo(x, y, reverse);
+  }
 
   while (elapsed.time(timeUnits::msec) < timeoutMs) {
     Pose pose = getPose();

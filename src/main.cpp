@@ -103,7 +103,7 @@ static void matchLeft() {
   
   // return;
   
-  spinToHeight(10.0, 600); // raise the lift for 0.5 s
+  spinToHeight(10.0, 700); // raise the lift for 0.5 s
   // reset the inertial sensor to 0 deg (facing north)
   thread spinToggle = thread([]() {
     clawIntake(); // start the claw spinning in
@@ -133,7 +133,7 @@ static void matchLeft() {
   turnToPoint(-48.0, -24.0, TurnDirection::SHORTEST,false, 800);
     clawStop(); // stop the claw after 0.5 s
 
-  moveToPoint(-48.0, -19.0, 900);
+  moveToPoint(-48.0, -18.0, 900);
   spinToHeight(6.0, 400);
   // return;
 
@@ -152,7 +152,7 @@ static void matchLeft() {
   spinToHeight(0.0, 600); // lower the lift for 0
   turnToPoint(-24.0, -24.0, TurnDirection::SHORTEST, false, 800);
   clawOpen();
-  moveToPoint(-23.0, -24.0, 1300, false, 5.0); // move to the pin
+  moveToPoint(-21.0, -25.0, 1300, false, 5.0); // move to the pin
   clawStop();
   clawIntake();
   spinToHeight(16.0, 1200); // raise the lift for 0.5 s
@@ -172,19 +172,21 @@ static void matchLeft() {
   });
   deaddriveforward(-5.0, 600);
   spinToHeight(0.0, 1200); // lower the lift for 0.5 s
-  turnToPoint(-48.0, -48.0);
+  turnToPoint(-48.0, -48.0, TurnDirection::SHORTEST, false, 800);
   clawOpen();
   //Claw Places down
-  moveToPoint(-46.0, -48.0, 900, false, 4.0);
+  moveToPoint(-46.0, -48.0, 1000, false, 4.0);
   clawStop();
 
   clawIntake();
-  spinToHeight(18.0, 1600); // raise the lift for
+  spinToHeight(18.0, 1300); // raise the lift for
   clawStop();
-  turnToPoint(-48.0, -24.0);
-  moveToPoint(-48.0, -24.0);
+  turnToPoint(-48.0, -24.0, TurnDirection::SHORTEST, false, 800);
+  moveToPoint(-48.0, -24.0, 900, false, 5.0);
   disableAutoClamp(1500); // releasing - don't let the auto clamp re-grab it
   clawOpen();
+  wait(500,msec);
+  clawStop();
 }
 //bottom
 static void matchBottom() {

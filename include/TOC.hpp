@@ -129,6 +129,11 @@ constexpr int SETTLE_MS = 100;           // must stay in tolerance this long
 // the robot from spinning in circles when it is right on top of the target.
 constexpr double STOP_STEERING_DIST = 6.0;
 
+// If moveToPoint starts with the point more than this many degrees off to
+// the side, it first turns in place to face it (with TURN_GAINS), then drives.
+// STEER_GAINS is only meant for small corrections while driving.
+constexpr double TURN_FIRST_DEG = 30.0;
+
 /*============================================================================*/
 /*                      KALMAN FILTER NOISE SETTINGS                          */
 /*============================================================================*/
