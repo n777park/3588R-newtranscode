@@ -198,21 +198,22 @@ static void matchBottom() {
     vex::wait(500, msec); // let it run for 3.0 s, then stop
     spinMechanism(activeToggle, 0.0);
   });
-  spinToHeight(8.0, 600); // raise the lift for 0.5 s
+  spinToHeight(10.0, 1100); // raise the lift for 0.5 s
   
   // thread raiselift = thread([]() {
   //   runLiftFor(LIFT_VOLTS, 500); // raise the lift for 0.5 s
   // // // });
-  moveToPoint(-28.0, -52.0, 500);
-  moveToPoint(-28.0, -52.0, 1000);
+  moveToPoint(-22.0, -47.0, 3000);
+  // moveToPoint(-28.0, -52.0, 1000);
   spinToHeight(4.0, 600); // lower the lift for 0.5 s
   clawOpen();
-  moveToPoint(-10.0, -48.0, 500);
-  turnToPoint(-26.0,-68.0);
+  deaddriveforward(-5.0, 500);
   clawStop();
+
+  turnToPoint(-26.0,-68.0);
   spinToHeight(0.0, 600); // lower the lift for 0.5 s
     clawIntake();
-  moveToPoint(-26.0,-68.0, 800); //grab pin on wall
+  moveToPoint(-28.0,-68.0, 800); //grab pin on wall
   clawStop();
   moveToPoint(-10.0,-48.0, 800);
   spinToHeight(15.0, 600); // raise the lift for 0.5 s
